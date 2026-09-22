@@ -42,7 +42,23 @@ Staff PIN → **Settings → This tablet**. You want:
 - Don't clear the browser's data or uninstall the app until you've exported.
 - Updates: publish a new version to the same address. Each tablet picks it up next time it's online, and only restarts on the "Spin to win" screen, never mid-entry.
 
+## Email sending (set up once)
+1. In Vercel → your project → **Settings → Environment Variables**, add (for Production):
+   - `EMAIL_PROVIDER` = `resend` or `zeptomail`
+   - `FROM_ADDRESS` = `Atticus Publishing <no-reply@yourdomain>`
+   - `KIOSK_SEND_KEY` = a long random password you make up (you'll type it into each tablet)
+   - `RESEND_API_KEY` (Resend) or `ZEPTO_TOKEN` (ZeptoMail; plus `ZEPTO_HOST` if your account is EU or India)
+2. **Redeploy** so the variables take effect.
+3. On the tablet: Staff → Settings → Email sending → paste the sending key → **Save key** → **Check connection** → **Send test email** to yourself.
+4. To email a winner: Staff → Entries → **Send email** → review and edit → **Send email** → confirm.
+
+Never paste API keys into chats or the GitHub repo; they only go in Vercel's settings.
+
+## Releasing an update
+1. Upload the new files into the `atticus-kiosk-app` folder on GitHub (Add file → Upload files) and commit. Vercel redeploys by itself.
+2. Tablets update next time they're online, on the "Spin to win" screen, and show "Updated to version x".
+3. Check the version at the bottom of the start screen.
+
 ## Before going live
 - Change the staff PIN from 2026 (Settings).
 - Delete practice entries (Settings → Delete all entries).
-- The top banner says "Draft build" until prizes, voucher terms and legal review are approved.
