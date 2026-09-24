@@ -1,64 +1,87 @@
-# Atticus Spin to Win: tablet app
+# Atticus Spin to Win — v1.3.1
 
-This folder is the complete app. Host it once, then install it on each tablet from the browser.
+A public prize wheel for the Atticus stand, plus an admin area. Entries, prizes and stock
+live in a shared Supabase database (Frankfurt), so every tablet and phone sees the same
+thing and two devices can never hand out the same last prize.
 
-## 1. Put it online (Netlify, about 2 minutes)
-1. Sign in at app.netlify.com.
-2. Go to **Sites → Add new site → Deploy manually**.
-3. Drag this whole folder (or the zip) onto the page.
-4. Netlify gives you an address like `https://something.netlify.app`. Rename it under **Site configuration → Change site name** if you like.
+**This version does NOT work from browser storage and does NOT work offline.** Every spin
+needs the server. That is the price of shared stock and one entry per author across devices.
 
-Keep the address among staff. The page is hidden from search engines. Anyone who opens it can only save entries onto their own device, so nothing reaches you from outside the stand tablet.
+## What's in this folder
+- `index.html` — the whole app: public wheel and admin area
+- `set-password.html` — where invitation and password-reset links land
+- `api/app.js` — the server: draw, entries, emails, admin sign-in
+- `api/_core.js`, `api/_email.js` — shared server logic and the winner-email wording
+- `api/send-email.js` — the manual test-send endpoint used by Settings
+- `db/` — the database schema and migrations
+- `tests/` — the test suites, and how to run them
+- `vercel.json`, `_headers`, `manifest.webmanifest`, `sw.js`, `icons/`, `fonts/`
 
-### Or on Vercel (also no GitHub)
-1. Sign in at vercel.com and go to **vercel.com/drop**.
-2. Drag this folder or the zip onto the page, pick your team, name the project (for example `atticus-spin`), and select **Deploy**.
-3. You get an address like `https://atticus-spin.vercel.app`.
+## Deploy a PREVIEW (does not touch production)
+1. In GitHub, make a branch (for example `preview`) and upload this folder's contents into
+   `atticus-kiosk-app` on that branch. Vercel builds a preview automatically.
+2. Vercel → Settings → Environment Variables, scope **Preview** only:
 
-**Updating on Vercel:** every drop makes a *new* project with a *new* address, and a tablet treats a new address as a brand-new app with no entries. So drop once, then for updates either:
-- run `npx vercel --prod` inside this folder (asks you to log in and pick the existing project the first time), or
-- connect the project to a Git repository later.
-Never switch a tablet to a new address during the fair before exporting its entries.
+   | Name | Value | Needed |
+   |---|---|---|
+   | `CAMPAIGN_ID` | `preview` | **yes** — locks this deployment to the test campaign. There is no default: without it the server refuses every request rather than guessing the live campaign. A non-production Vercel deployment is refused any value except `preview`. |
+   | `SUPABASE_URL` | `https://<project>.supabase.co` | yes |
+   | `SUPABASE_SERVICE_KEY` | service_role key | yes |
+   | `ADMIN_SIGNING_SECRET` | long random string | yes — signs admin unlock codes |
+   | `EMAIL_PROVIDER` | `resend` or `zeptomail` | for sending |
+   | `FROM_ADDRESS` | `Atticus Publishing <no-reply@yourdomain>` | for sending |
+   | `RESEND_API_KEY` or `ZEPTO_TOKEN` | provider key | for sending |
+   | `ZEPTO_HOST` | `api.zeptomail.eu` / `.in` | ZeptoMail outside the US |
+   | `EMAIL_SEND_KEY` | long random string | only for the test-send button |
+   | `SITE_URL` | `https://<your-preview>.vercel.app` | only if the deployment sits behind a custom domain; otherwise Vercel's own `VERCEL_URL` is used |
 
-## 2. Install on the tablet (needs internet once)
-**iPad (Safari):** open the address → **Share** → **Add to Home Screen** → open it from the new icon.
-**Android (Chrome):** open the address → menu (⋮) → **Install app**. Or: PIN screen → Settings → **Install on this tablet**.
+   No self-address setting is needed: email is sent inside `api/app.js`.
+3. Open the preview URL. No URL parameter is needed or accepted: the deployment decides
+   its campaign, and a request naming a different one is refused.
 
-After the first open it works without internet.
+**Production** uses the same files with `CAMPAIGN_ID=fbf26` and its own copies of the rest.
 
-## 3. Check it's ready
-Staff PIN → **Settings → This tablet**. You want:
-- Installed: Yes
-- Works offline: Yes
-- Entries protected: Yes
-- Screen stays on: Yes (if not supported, set the tablet's auto-lock to Never)
+## Supabase
+### A database that already exists (our Supabase project)
+**Nothing to run — already applied on 25 Sep 2026:** migrations 007 (campaign check inside
+`remove_entry`), 008 (settings scoped per campaign) and 009 (row-level security on
+`rate_hit`). Verified afterwards: the guard refuses a cross-campaign removal, the eight
+settings rows carry campaign suffixes, and the security linter reports no errors.
 
-## 4. Lock the tablet to the app
-- **iPad:** Settings → Accessibility → Guided Access → on. Open the app, triple-click the side button, Start.
-- **Android:** Settings → Security → App pinning → on. Open the app, open recent apps, tap the icon, Pin.
+Do not re-run `schema.sql`. The other files in `db/` are already live on our project and
+exist so a new database can be built from scratch.
 
-## 5. During the fair
-- Entries live on the tablet. **Export Excel at every break** (Staff → Entries → Export Excel).
-- Don't clear the browser's data or uninstall the app until you've exported.
-- Updates: publish a new version to the same address. Each tablet picks it up next time it's online, and only restarts on the "Spin to win" screen, never mid-entry.
+### A brand-new database
+`db/000_roles.sql`, then `db/schema.sql`, then every file in `db/migrations/` in numerical
+order. `db/schema-reference.sql` is the full structure for comparison.
 
-## Email sending (set up once)
-1. In Vercel → your project → **Settings → Environment Variables**, add (for Production):
-   - `EMAIL_PROVIDER` = `resend` or `zeptomail`
-   - `FROM_ADDRESS` = `Atticus Publishing <no-reply@yourdomain>`
-   - `KIOSK_SEND_KEY` = a long random password you make up (you'll type it into each tablet)
-   - `RESEND_API_KEY` (Resend) or `ZEPTO_TOKEN` (ZeptoMail; plus `ZEPTO_HOST` if your account is EU or India)
-2. **Redeploy** so the variables take effect.
-3. On the tablet: Staff → Settings → Email sending → paste the sending key → **Save key** → **Check connection** → **Send test email** to yourself.
-4. To email a winner: Staff → Entries → **Send email** → review and edit → **Send email** → confirm.
+### Invitation and reset links (one-time setup)
+Supabase → Authentication → URL Configuration → Redirect URLs, add both:
+`https://<your-preview>.vercel.app/set-password.html` and the production equivalent.
+Supabase only redirects to addresses on that list; without it, invitation and reset links
+land on the wrong page. The server asks for that address on every invite and reset.
+- Row-level security is on for every table with no public policies. Only the service key,
+  held by the server, can read or write. The anon key reads nothing.
 
-Never paste API keys into chats or the GitHub repo; they only go in Vercel's settings.
+## Admin
+- **Sign in once per tablet** with an email and password (Supabase Auth).
+- **PIN** (default 2026) reopens the admin view between authors; it authorises nothing on
+  its own. Five wrong tries locks that account out for five minutes.
+- **Hand to author** kills this tablet's unlock on the server. Other tablets carry on.
+- **Log out** ends this tablet's session; the PIN alone is then useless here.
+- **Test mode** marks entries as tests: no stock used, no email, kept out of reporting.
+- **Remove entry** returns exactly the stock it used, once, and cancels an unsent email.
 
-## Releasing an update
-1. Upload the new files into the `atticus-kiosk-app` folder on GitHub (Add file → Upload files) and commit. Vercel redeploys by itself.
-2. Tablets update next time they're online, on the "Spin to win" screen, and show "Updated to version x".
-3. Check the version at the bottom of the start screen.
+## Adding another admin
+Supabase → Authentication → Users → Add user (set a password, auto-confirm), or send an
+invitation, which lands on `set-password.html`. Then link the account:
+`select app_admin_add('<user-uuid>'::uuid,'<email>','<name>','setup');`
 
-## Before going live
-- Change the staff PIN from 2026 (Settings).
-- Delete practice entries (Settings → Delete all entries).
+## Emails
+Winner emails are written per prize in Staff → Emails and stored on the server, so every
+device shares them. An email with any detail still missing **cannot be sent**: Done queues
+it and staff see what's outstanding. Test sends go to one nominated address from Settings.
+
+## During the fair
+Entries are in the database, not the tablet, so nothing is lost if a tablet dies. Export
+from Staff → Entries whenever you want a copy.
