@@ -179,6 +179,20 @@ input:focus,select:focus,textarea:focus{border-color:var(--orange);outline:none}
 .err{color:var(--bad);font-size:.85rem;margin-top:.25rem;display:none}
 .err.show{display:block}
 .phone{display:grid;grid-template-columns:8.5rem 1fr;gap:.6rem}
+/* Sign-in and PIN screens. Without these the gate rendered full-bleed: a huge heading and
+   a button stretched across the whole screen. Centred card, comfortable on a tablet. */
+.gate{min-height:100dvh;display:grid;place-items:center;padding:1.2rem;box-sizing:border-box}
+.gatebox{width:min(26rem,100%);box-sizing:border-box;background:var(--panel);
+  border:2px solid var(--line);border-radius:18px;padding:1.6rem 1.4rem}
+.gatebox h2{font-size:1.4rem;line-height:1.2;margin:.9rem 0 .3rem}
+.gatebox > p.small{margin:0 0 .4rem}
+.gatebox .field{margin-top:1rem}
+.gatebox .field input{width:100%;box-sizing:border-box}
+.gatebox .row{display:flex;gap:.7rem;margin-top:1.2rem}
+.gatebox .row .btn{flex:1 1 0;min-width:0}
+.gatebox svg,.gatebox img{max-width:11rem;height:auto}
+@media (max-width:420px){ .gatebox{padding:1.2rem 1rem} .gatebox .row{flex-direction:column} }
+
 .consent{grid-column:1/-1;background:var(--panel);border:2px solid var(--line);border-radius:14px;padding:1rem}
 .consent.bad{border-color:var(--bad)}
 .consent .scroller{max-height:132px;overflow:auto;font-size:.86rem;color:var(--muted);padding-right:.5rem;margin:.5rem 0 .2rem;border-left:2px solid var(--line2);padding-left:.7rem}
