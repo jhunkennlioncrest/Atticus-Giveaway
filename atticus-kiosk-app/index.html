@@ -947,7 +947,7 @@ function renderEmail(entry, cfg, preview=false){
   return {subject, html, text, missing: emailMissing(tier.id,cfg)};
 }
 function emailStatus(entry, cfg){
-  if(entry.mail?.status==="sent") return {label:"Sent", kind:"on"};
+  if(entry.mail?.status==="sent") return {label:"Sent \u00b7 accepted by provider", kind:"on"};
   if(entry.mail?.status==="failed") return {label:`Failed (${(entry.mail.attempts||[]).length} attempt${(entry.mail.attempts||[]).length>1?"s":""}): retry`, kind:"off"};
   const miss=emailMissing(entry.tierId,cfg);
   if(miss.length) return {label:`Not sent · ${miss.length} detail${miss.length>1?"s":""} to fill`, kind:"off"};
@@ -956,6 +956,19 @@ function emailStatus(entry, cfg){
 /* Sends one author's email. Staff review and edit the draft first; nothing is sent
    automatically. Guarded per entry: a sent email is never re-sent unless staff choose
    "send another", and a failed attempt only records the attempt, never touches the prize. */
+/* Server-backed send. The provider key never reaches the tablet: the staff session plus
+   the unlock token authorise api("emailSend"), the server transmits and writes the result
+   to email_job in Supabase, so every tablet sees the same outcome. */
+async function serverSend(key, draft, again){
+  try{
+    const r = await api("emailSend", { id:key, draft, again:!!again });
+    if(r.status==="sent")   return {ok:true, already:!!r.already, id:r.providerId||""};
+    if(r.status==="failed") return {ok:false, why:"failed", error:r.error||"The provider refused the email."};
+    return {ok:false, why:"failed", error:"The server gave an unexpected answer."};
+  }catch(err){
+    return {ok:false, why:"failed", error:String(err.message||err)};
+  }
+}
 async function sendConfirmation(key, draft=null, opts={}){
   return S.lock("email-"+key, async()=>{
     const e=await S.get("entries/"+key); if(!e) return {ok:false,why:"missing entry"};
@@ -1058,7 +1071,7 @@ function composerCheck(){
   if(!$("#cmp-send")) return;                      // read-only "sent" view has nothing to check
   const d=composerDraft(); if(!d) return;
   const markers=MARKER_RE.test(d.subject+d.html), empty=!d.subject;
-  const why = !canSend() ? (APP.installable?"Enter the sending key in Settings → Email sending first.":"Sending works in the installed app, not in this preview.")
+  const why = !(SRV.on || canSend()) ? (APP.installable?"Enter the sending key in Settings → Email sending first.":"Sending works in the installed app, not in this preview.")
             : markers ? "Fill in or delete every orange [To confirm] note before sending."
             : empty ? "Add a subject line." : "";
   $("#cmp-send").disabled=!!why; $("#cmp-why").textContent=why; $("#cmp-why").hidden=!why;
@@ -1074,7 +1087,7 @@ async function openComposer(key, forceNew=false){
   d.innerHTML=`<div class="dlg">
     <h2 style="font-size:1.15rem">${CMP.mode==="sent"?"Sent email":"Review and send"}: ${esc(e.name)}</h2>
     <p class="small" style="margin:.2rem 0 .6rem"><b>To:</b> ${esc(e.email)} · <b>Prize:</b> ${esc(e.prize)} · ${esc(e.claimRef)} · <span class="badge ${st.kind}">${esc(st.label)}</span></p>
-    ${CMP.mode==="sent"?`<div class="okbox small">Sent ${esc(fmt(e.mail.sentAt))}${e.mail.sentBy?` by ${esc(e.mail.sentBy)}`:""}${e.mail.sentCount>1?` · ${e.mail.sentCount} emails sent in total`:""}.</div>`
+    ${CMP.mode==="sent"?`<div class="okbox small">Sent ${esc(fmt(e.mail.sentAt))}${e.mail.sentBy?` by ${esc(e.mail.sentBy)}`:""}${e.mail.sentCount>1?` · ${e.mail.sentCount} emails sent in total`:""}. The provider accepted it for delivery; that is not the same as confirmed delivery to the inbox.</div>`
       : `${last&&!last.ok?`<div class="alertbox small"><b>Last attempt failed:</b> ${esc(last.error||"")}</div>`:""}
          <p class="small muted" style="margin:0 0 .5rem">This is the email our template made for this author. Click into the email to change any wording. The "do not reply" box and the footer stay as they are.</p>`}
     <div class="field"><label class="lbl" for="cmp-subj">Subject</label><input id="cmp-subj" style="width:100%;min-height:46px;font-size:1rem;padding:.5rem .7rem" value="${esc(msg.subject)}" ${CMP.mode==="sent"?"readonly":""}></div>
@@ -1108,7 +1121,7 @@ async function composerSend(){
     `To ${e.name} at ${e.email}. Subject: ${draft.subject}`, again?"Yes, send another":"Send now");
   if(!ok) return;
   const btn=$("#cmp-send"); btn.disabled=true; btn.textContent="Sending…";
-  const r=await sendConfirmation(CMP.key, draft, {again, by:ST.by});
+  const r = SRV.on ? await serverSend(CMP.key, draft, again) : await sendConfirmation(CMP.key, draft, {again, by:ST.by});
   if(r.ok){ closeComposer(); toast(`Email sent to ${e.email}.`); ST.entries=await S.list("entries"); renderStaff(); }
   else { if(!$("#cmp-send")) return; btn.textContent="Send email"; composerCheck();
     const msg= r.why==="markers"?"There are still [To confirm] notes in the email." : r.error||"The email didn't send.";
