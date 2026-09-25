@@ -5,7 +5,7 @@
    Environment variables (Vercel → Project → Settings → Environment Variables):
      EMAIL_PROVIDER   "resend" or "zeptomail"
      FROM_ADDRESS     e.g. Atticus Publishing <no-reply@atticuspublishing.com>
-     KIOSK_SEND_KEY   long random text; staff paste the same value into the tablet
+     EMAIL_SEND_KEY   long random text; used only by the manual test button in Settings
      RESEND_API_KEY   when EMAIL_PROVIDER=resend
      ZEPTO_TOKEN      when EMAIL_PROVIDER=zeptomail ("Zoho-enczapikey ..." from ZeptoMail)
      ZEPTO_HOST       optional; api.zeptomail.com (default), api.zeptomail.eu, api.zeptomail.in
@@ -67,7 +67,7 @@ async function sendZepto(msg, from) {
 }
 
 module.exports = async function handler(req, res) {
-  const key = process.env.KIOSK_SEND_KEY, from = process.env.FROM_ADDRESS;
+  const key = process.env.EMAIL_SEND_KEY, from = process.env.FROM_ADDRESS;
   const provider = String(process.env.EMAIL_PROVIDER || "").toLowerCase();
   const providerKey = provider === "resend" ? process.env.RESEND_API_KEY : provider === "zeptomail" ? process.env.ZEPTO_TOKEN : "";
   if (!key || !from || !providerKey)
