@@ -913,7 +913,7 @@ function renderEmail(entry, cfg, preview=false){
 <table role="presentation" width="100%" style="max-width:600px;background:#FFFFFF;border-radius:14px;overflow:hidden">
 <tr><td style="background:#000;padding:22px 28px"><span style="font:700 22px Arial,Helvetica,sans-serif;letter-spacing:.14em;color:#FE5D29">ATTICUS</span><br><span style="font:700 13px Arial,Helvetica,sans-serif;letter-spacing:.28em;color:#FFFFFF">PUBLISHING</span></td></tr>
 <tr><td id="content" style="padding:26px 28px 8px;font:16px/1.55 Arial,Helvetica,sans-serif;color:#1B1B1B">${H.join("\n")}</td></tr>
-<tr><td style="padding:14px 28px 24px;font:12px/1.5 Arial,Helvetica,sans-serif;color:#6B6B6B;border-top:1px solid #EEE">${footH}</td></tr>
+<tr><td id="footer" style="padding:14px 28px 24px;font:12px/1.5 Arial,Helvetica,sans-serif;color:#6B6B6B;border-top:1px solid #EEE">${footH}</td></tr>
 </table></td></tr></table></body></html>`;
   const text=[`Subject: ${subject}`,...T,footT].join("\n\n").replace(/\n{3,}/g,"\n\n");
   return {subject, html, text, missing: emailMissing(tier.id,cfg)};
@@ -1021,10 +1021,15 @@ function maybeUpdate(){ if(APP.updateWaiting && V.screen==="attract" && !ST.open
 /* ---------------- email composer (Entries → Send email) ---------------- */
 const CMP = { key:null, entry:null, draft:null, mode:"edit" };
 function htmlToText(root){
+  if(!root) return "";                     // sections the template may not render
   const c=root.cloneNode(true);
-  c.querySelectorAll("a").forEach(a=>{ const href=(a.getAttribute("href")||"").replace(/^mailto:/,"").replace(/\?subject=.*/,"");
-    a.replaceWith(document.createTextNode(a.textContent.trim()+(href&&href!==a.textContent.trim()?`: ${href}`:""))); });
-  c.querySelectorAll("tr").forEach(tr=>{ const cells=[...tr.children].map(td=>td.textContent.trim()).filter(Boolean); tr.replaceWith(document.createTextNode("- "+cells.join(": ")+"\n")); });
+  const same=(x,y)=>x.replace(/[^a-z0-9@.]/gi,"").toLowerCase()===y.replace(/[^a-z0-9@.]/gi,"").toLowerCase();
+  c.querySelectorAll("a").forEach(a=>{ const t=a.textContent.trim();
+    const href=(a.getAttribute("href")||"").replace(/^(mailto|tel):/,"").replace(/\?subject=.*/,"");
+    a.replaceWith(document.createTextNode(t+(href&&!same(href,t)?`: ${href}`:""))); });
+  c.querySelectorAll("tr").forEach(tr=>{ const cells=[...tr.children].map(td=>td.textContent.trim()).filter(Boolean);
+    const line=cells.join(": ").replace(/:\s*:\s*/g,": ");
+    tr.replaceWith(document.createTextNode((/^[^:]{1,40}:\s/.test(line)?"":"- ")+line+"\n")); });
   c.querySelectorAll("p,h2,div").forEach(el=>el.append(document.createTextNode("\n\n")));
   c.querySelectorAll("br").forEach(b=>b.replaceWith(document.createTextNode("\n")));
   return c.textContent.replace(/[ \t]+\n/g,"\n").replace(/\n{3,}/g,"\n\n").trim();
@@ -1036,7 +1041,7 @@ function composerDraft(){
   const subject=$("#cmp-subj").value.trim();
   clone.querySelector("title").textContent=subject;
   const html="<!doctype html>\n"+clone.outerHTML;
-  const parts=[htmlToText(doc.getElementById("content")), htmlToText(doc.getElementById("noreply")), htmlToText(doc.querySelector("tr:last-child td"))];
+  const parts=[htmlToText(doc.getElementById("content")), htmlToText(doc.getElementById("footer"))].filter(Boolean);
   return {subject, html, text:[`Subject: ${subject}`,...parts].join("\n\n")};
 }
 function composerCheck(){
@@ -1061,7 +1066,7 @@ async function openComposer(key, forceNew=false){
     <p class="small" style="margin:.2rem 0 .6rem"><b>To:</b> ${esc(e.email)} · <b>Prize:</b> ${esc(e.prize)} · ${esc(e.claimRef)} · <span class="badge ${st.kind}">${esc(st.label)}</span></p>
     ${CMP.mode==="sent"?`<div class="okbox small">Sent ${esc(fmt(e.mail.sentAt))}${e.mail.sentBy?` by ${esc(e.mail.sentBy)}`:""}${e.mail.sentCount>1?` · ${e.mail.sentCount} emails sent in total`:""}. The provider accepted it for delivery; that is not the same as confirmed delivery to the inbox.</div>`
       : `${last&&!last.ok?`<div class="alertbox small"><b>Last attempt failed:</b> ${esc(last.error||"")}</div>`:""}
-         <p class="small muted" style="margin:0 0 .5rem">This is the email our template made for this author. Click into the email to change any wording. The "do not reply" box and the footer stay as they are.</p>`}
+         <p class="small muted" style="margin:0 0 .5rem">This is the letter our template made for this author. Click into the letter to change any wording. The signature and footer stay as they are.</p>`}
     <div class="field"><label class="lbl" for="cmp-subj">Subject</label><input id="cmp-subj" style="width:100%;min-height:46px;font-size:1rem;padding:.5rem .7rem" value="${esc(msg.subject)}" ${CMP.mode==="sent"?"readonly":""}></div>
     <iframe id="cmpframe" title="Email for ${esc(e.name)}" style="width:100%;height:520px;border:1px solid var(--line);border-radius:12px;background:#F2F2F2"></iframe>
     <p id="cmp-why" class="small" style="color:var(--bad);margin:.5rem 0 0" hidden></p>
@@ -1233,7 +1238,8 @@ async function paintTab(){
         <td>${esc(e.prizeShort)}</td><td>${esc(e.claimRef)}</td><td class="small">${esc(fmt(e.claimBy))}</td>
         <td>${esc(e.status)}${e.repeats?`<br><span class="small muted">${e.repeats} repeat try</span>`:""}<br><span class="badge ${emailStatus(e,cfg).kind}">${esc(emailStatus(e,cfg).label)}</span></td>
         <td><div class="row" style="gap:.3rem;flex-wrap:nowrap"><button class="btn sm ghost" data-act="open" data-key="${e.key}">Open</button>
-          <button class="btn sm ${e.mail?.status==="sent"?"ghost":""}" data-act="compose" data-key="${e.key}">${e.mail?.status==="sent"?"View email":"Send email"}</button></div></td></tr>`).join("")
+          <button class="btn sm ${e.mail?.status==="sent"?"ghost":""}" data-act="compose" data-key="${e.key}">${e.mail?.status==="sent"?"View email":"Send email"}</button>
+          ${SRV.on?`<button class="btn sm ghost" data-act="remove-entry" data-key="${e.key}" title="Remove this entry and return the prize to stock" style="border-color:var(--bad);color:var(--bad)">Remove</button>`:""}</div></td></tr>`).join("")
         || `<tr><td colspan="9" class="muted">No entries yet.</td></tr>`}
       </tbody></table></div>`;
     $("#q").addEventListener("input",x=>{ST.q=x.target.value;paintTab();$("#q").focus();});
