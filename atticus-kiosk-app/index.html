@@ -1186,7 +1186,6 @@ async function renderStaff(){
   $("#app").innerHTML=`<section class="screen staff">
     <div class="topbar">${logo("sm")}<div class="row"><span class="badge">${esc(ST.by)}</span>
       ${SRV.on?`<button class="btn sm" data-act="hand-over" title="Locks this tablet. The PIN reopens it.">Hand to author</button>`:""}
-        <button class="btn sm ghost" data-act="exit-staff">Back to the wheel</button>
         ${SRV.on?`<button class="btn sm ghost" data-act="admin-logout">Log out</button>
         <label class="small" style="display:flex;align-items:center;gap:.35rem;margin-left:.4rem">
           <input type="checkbox" data-act="test-mode" ${SRV.testMode?"checked":""}> Test mode</label>
@@ -1434,8 +1433,7 @@ document.addEventListener("click", async ev=>{
     const entry=V.entry; startOver();
     if(SRV.on && entry){
       try{ const r=await api("done",{ entryId:entry.key });
-        if(r.status==="sent") toast(`Confirmation email sent to ${entry.email}.`);
-        else if(r.status==="queued") toast("Saved. The email is queued: staff check the wording before it goes out.");
+        if(r.status==="sent" || r.status==="queued") toast("Submission Completed");
         else if(r.status==="test") toast("Test entry saved. No email sent.");
       }catch(err){ toast("Saved, but the email couldn't be queued: "+err.message,"bad"); }
     }
@@ -1444,7 +1442,11 @@ document.addEventListener("click", async ev=>{
   else if(act==="chances"){ showChances(); }
   else if(act==="close-chances"){ $("#chancedlg")?.close(); }
   else if(act==="staff"){ if(SRV.on){ ST.open=true; renderStaff(); } else staffGate(); }
-  else if(act==="exit-staff"){ ST.open=false; startOver(); }
+  else if(act==="exit-staff"){
+    // leaving the controls always relocks: the wheel must never be handed over with staff still open
+    if(SRV.unlock){ try{ await api("lock"); }catch{} }
+    SRV.unlock=""; ST.open=false; ST.entries=[]; startOver();
+  }
   else if(act==="lock"){ ST.open=false; if(SRV.on){ SRV.unlock=""; renderStaff(); } else staffGate(); }
   else if(act==="tab"){ ST.tab=el.dataset.tab; $$(".tab").forEach(b=>b.setAttribute("aria-selected",String(b.dataset.tab===ST.tab))); paintTab(); }
   else if(act==="toggle"){
