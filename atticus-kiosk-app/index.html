@@ -1036,22 +1036,29 @@ function htmlToText(root){
 }
 function composerDraft(){
   const fr=$("#cmpframe"), doc=fr&&fr.contentDocument; if(!doc) return null;
+  if(!doc.getElementById("content")) return null;   // srcdoc not parsed yet
   const clone=doc.documentElement.cloneNode(true);
   clone.querySelectorAll("[contenteditable]").forEach(x=>{x.removeAttribute("contenteditable");x.style.outline="";});
   const subject=$("#cmp-subj").value.trim();
-  clone.querySelector("title").textContent=subject;
+  const ttl=clone.querySelector("title"); if(ttl) ttl.textContent=subject;
   const html="<!doctype html>\n"+clone.outerHTML;
   const parts=[htmlToText(doc.getElementById("content")), htmlToText(doc.getElementById("footer"))].filter(Boolean);
   return {subject, html, text:[`Subject: ${subject}`,...parts].join("\n\n")};
 }
 function composerCheck(){
-  if(!$("#cmp-send")) return;                      // read-only "sent" view has nothing to check
-  const d=composerDraft(); if(!d) return;
-  const markers=MARKER_RE.test(d.subject+d.html), empty=!d.subject;
-  const why = !(SRV.on || canSend()) ? (APP.installable?"Enter the sending key in Settings → Email sending first.":"Sending works in the installed app, not in this preview.")
+  const btn=$("#cmp-send"); if(!btn) return;       // read-only "sent" view has nothing to check
+  /* A greyed Send button must always explain itself. Anything that stops us building
+     the draft is reported here rather than leaving the button dark and silent. */
+  let d=null, trouble="";
+  try{ d=composerDraft(); }
+  catch(ex){ trouble=`Couldn't read the letter (${ex&&ex.message||ex}). Close this email and open it again.`; }
+  if(!d && !trouble) trouble="The letter is still loading. Give it a moment, or close this email and open it again.";
+  const markers=!!d && MARKER_RE.test(d.subject+d.html), empty=!!d && !d.subject;
+  const why = trouble ? trouble
+            : !(SRV.on || canSend()) ? (APP.installable?"Enter the sending key in Settings → Email sending first.":"Sending works in the installed app, not in this preview.")
             : markers ? "Fill in or delete every orange [To confirm] note before sending."
             : empty ? "Add a subject line." : "";
-  $("#cmp-send").disabled=!!why; $("#cmp-why").textContent=why; $("#cmp-why").hidden=!why;
+  btn.disabled=!!why; $("#cmp-why").textContent=why; $("#cmp-why").hidden=!why;
 }
 async function openComposer(key, forceNew=false){
   const e=ST.entries.find(x=>x.key===key) || await S.get("entries/"+key); if(!e) return;
@@ -1077,13 +1084,18 @@ async function openComposer(key, forceNew=false){
     </div></div>`;
   document.body.appendChild(d);
   const fr=$("#cmpframe",d);
+  /* An empty iframe can fire one "load" for its blank document before srcdoc is parsed.
+     Waiting for the letter itself means that stray event can't leave the composer dead. */
+  let wired=false;
   fr.addEventListener("load",()=>{
-    const doc=fr.contentDocument, c=doc.getElementById("content");
-    if(CMP.mode==="edit" && c){ c.contentEditable="true"; c.style.outline="2px dashed #FE5D29"; c.style.outlineOffset="-6px";
+    const doc=fr.contentDocument, c=doc&&doc.getElementById("content");
+    if(!doc || !c || wired) return;
+    wired=true;
+    if(CMP.mode==="edit"){ c.contentEditable="true"; c.style.outline="2px dashed #FE5D29"; c.style.outlineOffset="-6px";
       doc.addEventListener("input",composerCheck); doc.addEventListener("keyup",composerCheck); }
     doc.addEventListener("click",ev=>{ if(ev.target.closest("a")) ev.preventDefault(); });   // links don't navigate while reviewing
     composerCheck();
-  },{once:true});
+  });
   fr.srcdoc=msg.html;
   $("#cmp-subj",d).addEventListener("input",composerCheck);
   d.addEventListener("cancel",ev=>{ev.preventDefault(); closeComposer();});
