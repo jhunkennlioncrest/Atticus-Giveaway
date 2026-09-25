@@ -46,15 +46,24 @@ const auth = {
 };
 /* Sending runs in this same function rather than calling ourselves over HTTP, so no
    self-address or extra key is needed and it works the same on preview and production. */
+/* Attachments travel with the send call, already base64 encoded, from the campaign's
+   email_attachments setting. Nothing is fetched over the network at send time. */
+function normaliseAttachments(list) {
+  return (list || []).filter(f => f && f.name && f.content).map(f => ({
+    name: String(f.name), mime_type: String(f.mime_type || "application/pdf"), content: String(f.content) }));
+}
+
 async function sendMail(msg) {
   const provider = String(process.env.EMAIL_PROVIDER || "").toLowerCase();
   const from = process.env.FROM_ADDRESS;
   if (!provider || !from) throw new Error("Email sending isn't set up on this deployment yet.");
+  const files = normaliseAttachments(msg.attach);
   if (provider === "resend") {
     const r = await fetch("https://api.resend.com/emails", { method: "POST",
       headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json",
                  "Idempotency-Key": msg.idempotencyKey },
       body: JSON.stringify({ from, to: [msg.to], subject: msg.subject, html: msg.html, text: msg.text,
+                             attachments: files.length ? files.map(f => ({ filename: f.name, content: f.content })) : undefined,
                              headers: { "X-Entity-Ref-ID": msg.idempotencyKey } }) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.message || j.error?.message || `Resend answered ${r.status}`);
@@ -69,7 +78,8 @@ async function sendMail(msg) {
     headers: { Authorization: token, "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({ from: { address: f.address, name: f.name || undefined },
       to: [{ email_address: { address: msg.to, name: msg.name || undefined } }],
-      subject: msg.subject, htmlbody: msg.html, textbody: msg.text, client_reference: msg.idempotencyKey }) });
+      subject: msg.subject, htmlbody: msg.html, textbody: msg.text, client_reference: msg.idempotencyKey,
+      attachments: files.length ? files : undefined }) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error?.details?.[0]?.message || j.message || `ZeptoMail answered ${r.status}`);
   return j.request_id || "";

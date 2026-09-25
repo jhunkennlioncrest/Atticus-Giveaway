@@ -107,7 +107,7 @@ function renderEmail(entry, prize, shared = {}, preview = false) {
     T.push(urls.join("\n"));
   }
   if (filled(shared.logoUrl)) {
-    H.push(`<p style="margin:0 0 20px"><img src="${esc(shared.logoUrl.trim())}" width="557" alt="Atticus Publishing, BBB Accredited Business, Alliance of Independent Authors, IBPA member, Trustpilot" style="display:block;width:100%;max-width:557px;height:auto;border:0"></p>`);
+    H.push(`<p style="margin:22px 0 20px"><img src="${esc(shared.logoUrl.trim())}" width="557" alt="Atticus Publishing, BBB Accredited Business, Alliance of Independent Authors, IBPA member, Trustpilot" style="display:block;width:100%;max-width:557px;height:auto;border:0"></p>`);
   }
 
   if (filled(shared.referralUrl)) {

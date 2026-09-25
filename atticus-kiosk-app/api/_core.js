@@ -108,8 +108,8 @@ const OPS = {
     return r;
   },
 
-  /* Done: the author has seen their prize. Send now if the prize's email wording is
-     complete, otherwise leave it queued for staff. Never sends twice. */
+  /* Done: the author has seen their prize. The confirmation is always queued for staff
+     review. Nothing is transmitted here under any condition. */
   async done(ctx, body) {
     await limitPublic(ctx, "done", 30, 10);
     const id = String(body.entryId || "");
@@ -118,13 +118,14 @@ const OPS = {
     if (entry.is_test) return { status: "test", note: "Test entry: no email is sent." };
     if (entry.mail_status === "sent") return { status: "sent", already: true };
 
+    /* Done never sends. The confirmation is always queued for a staff member to review,
+       edit and send from Entries. This holds even when the prize wording is complete. */
     const built = await buildEmail(ctx, entry);
-    if (built.missing.length) {
-      await ctx.db.rpc("app_email_queued", { p_entry: id });
-      return { status: "queued", missing: built.missing,
-               note: "Saved. Staff will check the wording before this email goes out." };
-    }
-    return await sendFor(ctx, entry, built, { by: "kiosk (Done)" });
+    await ctx.db.rpc("app_email_queued", { p_entry: id });
+    return { status: "queued", missing: built.missing,
+             note: built.missing.length
+               ? "Saved. Staff will check the wording before this email goes out."
+               : "Saved. Staff will review this email in Entries before it goes out." };
   },
 
   /* ---------------- staff ---------------- */
@@ -271,6 +272,14 @@ const OPS = {
 };
 
 /* ---------------- email building and sending ---------------- */
+/* Files posted with a prize letter, held in the campaign's email_attachments setting as
+   { prizeId: [ { name, mime_type, content } ] } with content base64 encoded. A prize whose
+   letter promises an attachment must appear there: if it is missing the send is refused
+   rather than going out without the file. */
+async function attachmentsFor(ctx, entry) {
+  const all = (await ctx.db.rpc("app_settings_get", { p_key: settingsKey(ctx, "email_attachments") })) || {};
+  return all[entry.prize_id] || [];
+}
 async function buildEmail(ctx, entry, preview = false) {
   const prizes = await ctx.db.rpc("wheel_state", { p_campaign: entry.campaign_id });
   const p = prizes.find(x => x.id === entry.prize_id) || {};
@@ -281,8 +290,12 @@ async function buildEmail(ctx, entry, preview = false) {
 async function sendFor(ctx, entry, msg, opts) {
   const n = (entry.mail_send_count || 0) + 1;
   try {
+    const files = await attachmentsFor(ctx, entry);
+    if (/\battached\b/i.test(msg.text || "") && !files.length)
+      throw new Error("This letter refers to an attachment, but no file is set up for this prize.");
     const id = await ctx.sendMail({ to: entry.email, name: entry.name, subject: msg.subject,
-      html: msg.html, text: msg.text, idempotencyKey: `${entry.claim_ref}-${n}` });
+      html: msg.html, text: msg.text, idempotencyKey: `${entry.claim_ref}-${n}`,
+      attach: files });
     await ctx.db.rpc("app_email_sent", { p_entry: entry.id, p_by: opts.by || "",
       p_subject: msg.subject, p_html: msg.html, p_provider: String(id || "") });
     return { status: "sent", to: entry.email };
