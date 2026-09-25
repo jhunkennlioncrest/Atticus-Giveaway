@@ -787,51 +787,26 @@ const deliver = msg => DELIVERY.provider ? DELIVERY.provider.send(msg) : apiCall
 const EMAIL_TYPES = {v2500:"voucher",v800:"voucher",v250:"voucher",v100:"voucher",v80:"voucher",bs1:"bookstore",bs2:"bookstore"};
 const emailType = id => EMAIL_TYPES[id]||"service";
 // [key, label, required, hint]
-const EMAIL_FIELDS = {
-  voucher:[
-    ["currency","Currency code",true,"USD shows as $ in the email, for example $2,500."],
-    ["services","Services the voucher can be used for",true,"For example: editing, cover design, marketing campaigns."],
-    ["minSpend","Minimum spend or purchase needed",true,"Write 'None' if there isn't one."],
-    ["exclusions","Exclusions",false,"Leave blank if there are none."],
-    ["expiry","Voucher expiry date",true,"For example: 31 March 2027."],
-    ["partial","Can the balance be used across several purchases?",true,"For example: 'Yes, until the balance is used' or 'No, one purchase only'."],
-    ["redeem","How to redeem",true,"For example: quote your claim reference when you book with your consultant."]
-  ],
-  bookstore:[
-    ["description","What the display includes",true,""],
-    ["location","Participating bookstore(s) and location",true,"Name them only once confirmed with the partner."],
-    ["placement","Placement type",true,"For example: front-of-store table display."],
-    ["duration","How long the display runs",true,""],
-    ["eligibility","Book eligibility review",false,"For example: we check your book meets the store's criteria first."],
-    ["format","Format requirements",false,"For example: paperback, ISBN, retail barcode."],
-    ["copies","Copies the author supplies",true,"Write 'None' if not needed."],
-    ["shipping","Shipping costs and who pays",true,""],
-    ["timeline","Fulfilment timeline",true,""],
-    ["conditions","Other conditions",false,""]
-  ],
-  service:[
-    ["description","What's included",true,""],
-    ["submit","What the author must submit",true,"Write 'Nothing' if not needed."],
-    ["claim","How to claim",true,""],
-    ["timeline","Fulfilment timeline",true,""],
-    ["conditions","Limitations and conditions",true,""]
-  ]
-};
-const EMAIL_GLOBAL_FIELDS = [
-  ["teamName","Sign-off",true,""],
-  ["supportEmail","Support email",true,"Also used for the claim button unless a claim link is set."],
-  ["website","Website",true,""],
-  ["privacyUrl","Privacy policy link",true,""],
-  ["claimUrl","Claim link (optional)",false,"If blank, the claim button opens a reply to the support email."],
-  ["calendlyUrl","Calendly booking link (optional)",false,"The appointment section only appears when this and the dates are set."],
-  ["apptDates","Appointment dates (optional)",false,"For example: 13–16 October 2026."]
+const EMAIL_LETTER = [
+  ["subject","Subject line",true,"Shown in the author's inbox."],
+  ["body","Email letter",true,"The approved letter. Use [First Name], [Book Title] and [Claim Reference] where those details belong. A line in CAPITALS becomes a heading; lines starting with \u201c- \u201d become bullets."]
 ];
+const EMAIL_FIELDS = { voucher: EMAIL_LETTER, bookstore: EMAIL_LETTER, service: EMAIL_LETTER };
+const EMAIL_GLOBAL_FIELDS = [
+  ["teamName","Sign-off",true,"Appears under \u201cBest regards,\u201d."],
+  ["phones","Phone numbers",false,"One line per row, shown under the sign-off."],
+  ["website","Website",true,"Linked as \u201cWebsite\u201d in the signature."],
+  ["facebookUrl","Facebook page",false,"Adds \u201cFacebook\u201d beside Website in the signature."],
+  ["referralUrl","Referral programme link",false,"Shows the referral block at the foot of the email."],
+  ["privacyUrl","Privacy policy link",true,"Linked from the footer."],
+  ["supportEmail","Support email",false,"Reference only \u2014 write the address into the letter itself."],
+  ["logoUrl","Signature image URL",false,"Absolute link to the Atticus / BBB / IBPA / Trustpilot strip."]
+]
 // Only details already approved on the prize sheet are pre-filled.
 const EMAIL_DEFAULTS = {
   teamName:"The Atticus Publishing team", supportEmail:"", website:"https://www.atticuspublishing.com",
-  privacyUrl:"", claimUrl:"", calendlyUrl:"", apptDates:"",
-  tiers:{ video:{timeline:"About 5 weeks"}, pkg:{timeline:"About 90 days"}, bs1:{timeline:"About 2 weeks"}, bs2:{timeline:"About 2 weeks"},
-    v2500:{currency:"USD"}, v800:{currency:"USD"}, v250:{currency:"USD"}, v100:{currency:"USD"}, v80:{currency:"USD"} }
+  privacyUrl:"", phones:"", facebookUrl:"", logoUrl:"",
+  tiers:{}
 };
 const emailCfg = cfg => deepMerge(EMAIL_DEFAULTS, cfg.email||{});
 const filled = v => typeof v==="string" && v.trim()!=="" && !/^\[.*\]$/.test(v.trim());
@@ -848,12 +823,6 @@ function prizeName(tier, cfg, preview){
   if(filled(cur)) return tier.name;                      // approved wording as shown to authors
   return tier.name.replace(/^\$/, preview?"[currency to confirm] ":"");
 }
-function claimDeadline(iso){
-  const d=new Date(iso);
-  const day=new Intl.DateTimeFormat("en-GB",{timeZone:"Europe/Berlin",weekday:"long",day:"numeric",month:"long",year:"numeric"}).format(d);
-  const tz=(new Intl.DateTimeFormat("en-GB",{timeZone:"Europe/Berlin",timeZoneName:"short"}).formatToParts(d).find(x=>x.type==="timeZoneName")||{}).value||"CET";
-  return `${day}, 11:59 PM Frankfurt time (${tz})`;
-}
 /* Builds subject, HTML and plain text for one recorded win.
    preview=true marks unconfirmed details in orange instead of hiding them. */
 function renderEmail(entry, cfg, preview=false){
@@ -862,7 +831,7 @@ function renderEmail(entry, cfg, preview=false){
   // v(): approved text, a visible "to confirm" marker in preview, or nothing
   const v=(k,src=td)=>filled(src[k])?{h:esc(src[k].trim()),t:src[k].trim()}:(preview?{h:`<span style="background:#FFE3D6;color:#9A3412;border-radius:4px;padding:0 4px">[To confirm: ${esc(labelOf(k))}]</span>`,t:`[To confirm: ${labelOf(k)}]`}:null);
   const first=String(entry.name||"").trim().split(/\s+/)[0]||"there", book=String(entry.bookTitle||"").trim();
-  const name=prizeName(tier,cfg,preview), deadline=claimDeadline(entry.claimBy), won=name;
+  const name=prizeName(tier,cfg,preview), won=name;
   const H=[], T=[];                          // HTML blocks, text blocks
   const para=(h,t)=>{H.push(`<p style="margin:0 0 14px">${h}</p>`);T.push(t);};
   const head=x=>{H.push(`<h2 style="font:600 18px/1.3 Arial,Helvetica,sans-serif;color:#FE5D29;margin:26px 0 10px;text-transform:uppercase;letter-spacing:.04em">${x}</h2>`);T.push(x.toUpperCase());};
@@ -871,79 +840,82 @@ function renderEmail(entry, cfg, preview=false){
     T.push(it.map(([k,x])=>`- ${k}: ${x.t}`).join("\n"));};
   const row=(k,x)=>x?[k,x]:null;
 
-  para(`Hi ${esc(first)},`,`Hi ${first},`);
-  para(`Congratulations! You've won <strong>${esc(won)}</strong> in our Frankfurt Book Exhibit Spin-the-Wheel giveaway.`,
-       `Congratulations! You've won ${won} in our Frankfurt Book Exhibit Spin-the-Wheel giveaway.`);
-  para(book?`Thank you for joining us and sharing <em>${esc(book)}</em>. We're excited to help you take the next step in your publishing journey.`:`Thank you for joining us. We're excited to help you take the next step in your publishing journey.`,
-       book?`Thank you for joining us and sharing "${book}". We're excited to help you take the next step in your publishing journey.`:`Thank you for joining us. We're excited to help you take the next step in your publishing journey.`);
+  const ref=String(entry.claimRef||"");
+  const inline=(t,html)=>{
+    let x = html?esc(t):t;
+    x = x.split("[First Name]").join(html?esc(first):first);
+    x = x.split("[Book Title]").join(book?(html?`<em>${esc(book)}</em>`:`"${book}"`):"your book");
+    x = x.split("[Claim Reference]").join(html?`<strong style="letter-spacing:.08em">${esc(ref)}</strong>`:ref);
+    return x;
+  };
+  const leadIn=(t,html)=>{
+    const m=t.match(/^([A-Z][^:\n]{0,34}):\s(.*)$/s);
+    if(!m) return inline(t,html);
+    return html?`<strong>${esc(m[1])}:</strong> ${inline(m[2],true)}`:inline(t,false);
+  };
 
-  head("Your prize");
-  if(type==="voucher"){
-    const svc=v("services");
-    para(`A credit of <strong>${esc((name.match(/\$[\d,]+/)||[name])[0])}</strong> toward ${svc?svc.h:""}. This is a voucher for Atticus services. It is not cash and can't be exchanged for cash.`,
-         `A credit of ${(name.match(/\$[\d,]+/)||[name])[0]} toward ${svc?svc.t:""}. This is a voucher for Atticus services. It is not cash and can't be exchanged for cash.`);
-    list([row("Minimum spend",v("minSpend")),row("Exclusions",filled(td.exclusions)?v("exclusions"):null),row("Expires",v("expiry")),row("Using the balance",v("partial"))]);
-  } else if(type==="bookstore"){
-    const d=v("description"); if(d) para(d.h,d.t);
-    list([row("Where",v("location")),row("Placement",v("placement")),row("How long",v("duration")),
-          row("Eligibility",filled(td.eligibility)?v("eligibility"):null),row("Format",filled(td.format)?v("format"):null)]);
-    para(`A display helps readers discover your book. It doesn't guarantee sales or ongoing stocking.`,`A display helps readers discover your book. It doesn't guarantee sales or ongoing stocking.`);
-  } else {
-    const d=v("description"); if(d) para(d.h,d.t);
+  const raw = filled(td.body) ? td.body.trim() : (preview?"[To confirm: Email letter]":null);
+  if(raw) for(const blk of raw.split(/\n\s*\n/).map(x=>x.trim()).filter(Boolean)){
+    const lines=blk.split("\n").map(x=>x.trim()).filter(Boolean);
+    if(lines.every(l=>/^[-\u2022]\s+/.test(l))){
+      const items=lines.map(l=>l.replace(/^[-\u2022]\s+/,""));
+      H.push(`<ul style="margin:0 0 14px;padding-left:20px">${items.map(i=>`<li style="margin:0 0 6px">${leadIn(i,true)}</li>`).join("")}</ul>`);
+      T.push(items.map(i=>`- ${inline(i,false)}`).join("\n"));
+    } else if(lines.length===1 && lines[0].length<60 && lines[0]===lines[0].toUpperCase() && /[A-Z]/.test(lines[0])){
+      head(esc(lines[0]));
+    } else {
+      const joined=lines.join(" ");
+      H.push(`<p style="margin:0 0 14px">${leadIn(joined,true)}</p>`);
+      T.push(inline(joined,false));
+    }
   }
-  H.push(`<p style="margin:0 0 14px;font-size:15px">Claim reference: <strong style="font-size:18px;letter-spacing:.08em">${esc(entry.claimRef)}</strong></p>`);
-  T.push(`Claim reference: ${entry.claimRef}`);
 
-  head("How to claim");
-  const how = type==="voucher"?v("redeem") : type==="service"?v("claim") : (()=>{const su=v("supportEmail",ec); return {h:`Email us at ${su?su.h:""} with your claim reference and we'll confirm the next steps for your display.`,t:`Email us at ${su?su.t:""} with your claim reference and we'll confirm the next steps for your display.`};})();
-  if(how) para(how.h,how.t);
-  const claimHref = filled(ec.claimUrl) ? ec.claimUrl.trim() : (filled(ec.supportEmail) ? `mailto:${ec.supportEmail.trim()}?subject=${encodeURIComponent("Prize claim "+entry.claimRef)}` : "");
-  if(claimHref){
-    H.push(`<p style="margin:6px 0 18px"><a href="${esc(claimHref)}" style="display:inline-block;background:#FE5D29;color:#140702;text-decoration:none;font:700 15px Arial,Helvetica,sans-serif;padding:13px 26px;border-radius:999px">Claim your prize</a></p>`);
-    T.push(`Claim your prize: ${claimHref.replace(/\?subject=.*/,"")} (quote ${entry.claimRef})`);
-  } else if(preview){ H.push(`<p>${v("supportEmail",ec).h}</p>`); T.push(v("supportEmail",ec).t); }
-  para(`Please claim your prize by <strong>${esc(deadline)}</strong>.`,`Please claim your prize by ${deadline}.`);
-  const after=[];
-  if(type==="bookstore"){ after.push(row("Copies to send",v("copies")),row("Shipping",v("shipping")),row("Timeline",v("timeline"))); }
-  else if(type==="service"){ after.push(row("What to send us",v("submit")),row("Timeline",v("timeline"))); }
-  if(after.filter(Boolean).length){ para(`<strong>After you claim</strong>`,`After you claim:`); list(after); }
-
-  // conditions: any purchase or author cost goes first, in bold
-  const cond=[];
-  if(type==="voucher"){ const m=v("minSpend"); if(m && !/^none$/i.test(td.minSpend||"")) cond.push({h:`<strong>Using this voucher requires a purchase: ${m.h}</strong>`,t:`USING THIS VOUCHER REQUIRES A PURCHASE: ${m.t}`}); }
-  if(type==="bookstore"){ const sh=v("shipping"); if(sh) cond.push({h:`<strong>Shipping: ${sh.h}</strong>`,t:`SHIPPING: ${sh.t}`}); if(filled(td.conditions)) cond.push(v("conditions")); }
-  if(type==="service"){ const c=v("conditions"); if(c) cond.push(c); }
-  cond.push({h:"Prizes can't be transferred or exchanged for cash.",t:"Prizes can't be transferred or exchanged for cash."});
-  H.push(`<p style="margin:14px 0;font-size:14px;color:#3A3A3A"><strong>Prize conditions:</strong> ${cond.map(c=>c.h).join(" ")}</p>`);
-  T.push(`Prize conditions: ${cond.map(c=>c.t).join(" ")}`);
-
-  if(filled(ec.calendlyUrl) && filled(ec.apptDates)){
-    head("Let's talk about your book");
-    para(`If you'd like to discuss your publishing goals, you can book an optional post-event appointment. It's separate from claiming your prize. Appointments start at <strong>5 PM UK time</strong> on ${esc(ec.apptDates)}.`,
-         `If you'd like to discuss your publishing goals, you can book an optional post-event appointment. It's separate from claiming your prize. Appointments start at 5 PM UK time on ${ec.apptDates}.`);
-    H.push(`<p style="margin:0 0 18px"><a href="${esc(ec.calendlyUrl)}" style="color:#FE5D29;font-weight:700">Book an appointment</a></p>`); T.push(`Book an appointment: ${ec.calendlyUrl}`);
+  const priv=v("privacyUrl",ec);
+  const brand = filled(ec.teamName)?ec.teamName.trim():"";
+  const bw = brand.split(" ");
+  const brandH = brand?`<span style="color:#FE5D29">${esc(bw[0])}</span>${bw.length>1?" "+esc(bw.slice(1).join(" ")):""}`:"";
+  H.push(`<p style="margin:22px 0 10px">Best regards,</p>`); T.push("Best regards,");
+  if(brand){ H.push(`<p style="margin:0 0 10px;font:700 17px Arial,Helvetica,sans-serif;letter-spacing:.01em">${brandH}</p>`); T.push(brand); }
+  if(filled(ec.phones)){
+    const ln=ec.phones.trim().split("\n").map(x=>x.trim()).filter(Boolean);
+    H.push(`<table role="presentation" style="border-collapse:collapse;margin:0 0 12px">${ln.map(l=>{
+      const m=l.match(/^(.*?):\s*(.+)$/), lbl=m?m[1]:"", num=m?m[2]:l, tel=num.replace(/[^\d+]/g,"");
+      return `<tr><td style="padding:1px 6px 1px 0;font:15px/1.5 Arial,Helvetica,sans-serif;color:#1B1B1B;white-space:nowrap">${lbl?esc(lbl)+":":""}</td>`+
+             `<td style="padding:1px 0;font:15px/1.5 Arial,Helvetica,sans-serif"><a href="tel:${esc(tel)}" style="color:#FE5D29;text-decoration:none">${esc(num)}</a></td></tr>`;
+    }).join("")}</table>`);
+    T.push(ln.join("\n"));
   }
-  { const su=v("supportEmail",ec); if(su) para(`Have a question? Email us at ${su.h} and we'll be happy to help.`,`Have a question? Email us at ${su.t} and we'll be happy to help.`); }
-  const sup=v("supportEmail",ec), web=v("website",ec), priv=v("privacyUrl",ec), team=v("teamName",ec);
-  H.push(`<p style="margin:0 0 4px">Best,<br>${team?team.h:""}</p><p style="margin:0 0 20px;color:#6B6B6B;font-size:14px">${sup?sup.h:""}${sup&&web?" · ":""}${web?web.h:""}</p>`);
-  T.push(`Best,\n${team?team.t:""}\n${[sup&&sup.t,web&&web.t].filter(Boolean).join(" · ")}`);
-  const footH=`You're receiving this email because you took part in our Frankfurt Book Exhibit giveaway.${priv?(filled(ec.privacyUrl)?` <a href="${esc(ec.privacyUrl)}" style="color:#6B6B6B">Privacy policy</a>`:" "+priv.h):""}`;
-  const footT=`You're receiving this email because you took part in our Frankfurt Book Exhibit giveaway.${priv?" Privacy policy: "+priv.t:""}`;
+  const urls=[];
+  if(filled(ec.website)) urls.push(ec.website.trim());
+  if(filled(ec.facebookUrl)) urls.push(ec.facebookUrl.trim());
+  if(urls.length){
+    H.push(`<p style="margin:0 0 14px;font:15px/1.7 Arial,Helvetica,sans-serif">${urls.map(u=>`<a href="${esc(u)}" style="color:#FE5D29">${esc(u)}</a>`).join("<br>")}</p>`);
+    T.push(urls.join("\n"));
+  }
+  if(filled(ec.logoUrl)){
+    H.push(`<p style="margin:0 0 20px"><img src="${esc(ec.logoUrl.trim())}" width="557" alt="Atticus Publishing, BBB Accredited Business, Alliance of Independent Authors, IBPA member, Trustpilot" style="display:block;width:100%;max-width:557px;height:auto;border:0"></p>`);
+  }
 
-  const supD=v("supportEmail",ec);
-  const noReplyH=`<strong>Please do not reply to this email.</strong> This address isn't monitored. To claim your prize or ask a question, email ${supD?supD.h:""}.`;
-  const noReplyT=`PLEASE DO NOT REPLY TO THIS EMAIL. This address isn't monitored. To claim your prize or ask a question, email ${supD?supD.t:""}.`;
-  const subject=`You won ${won} at the Frankfurt Book Exhibit!`;
+  if(filled(ec.referralUrl)){
+    head("Help another author take their next step");
+    para("Know an author who could benefit from publishing or marketing support? Discover how you can earn service credit through the Atticus Publishing referral program. It is separate from claiming your prize and is not needed to claim it.",
+         "Know an author who could benefit from publishing or marketing support? Discover how you can earn service credit through the Atticus Publishing referral program. It is separate from claiming your prize and is not needed to claim it.");
+    H.push(`<p style="margin:0 0 18px"><a href="${esc(ec.referralUrl.trim())}" style="color:#FE5D29;font-weight:700">View the program details and submit your referral</a></p>`);
+    T.push(`View the program details and submit your referral: ${ec.referralUrl.trim()}`);
+  }
+
+  const footH=`You're receiving this email because you participated in our Frankfurt Book Exhibit giveaway.${filled(ec.privacyUrl)?` <a href="${esc(ec.privacyUrl)}" style="color:#6B6B6B">Privacy Policy</a>`:(priv?" "+priv.h:"")}`;
+  const footT=`You're receiving this email because you participated in our Frankfurt Book Exhibit giveaway.${priv?" Privacy Policy: "+priv.t:""}`;
+  const subject = filled(td.subject) ? inline(td.subject.trim(),false) : `You won ${won} at the Frankfurt Book Exhibit!`;
   const html=`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(subject)}</title></head>
 <body style="margin:0;background:#F2F2F2">
 <table role="presentation" width="100%" style="background:#F2F2F2;padding:20px 10px"><tr><td align="center">
 <table role="presentation" width="100%" style="max-width:600px;background:#FFFFFF;border-radius:14px;overflow:hidden">
 <tr><td style="background:#000;padding:22px 28px"><span style="font:700 22px Arial,Helvetica,sans-serif;letter-spacing:.14em;color:#FE5D29">ATTICUS</span><br><span style="font:700 13px Arial,Helvetica,sans-serif;letter-spacing:.28em;color:#FFFFFF">PUBLISHING</span></td></tr>
 <tr><td id="content" style="padding:26px 28px 8px;font:16px/1.55 Arial,Helvetica,sans-serif;color:#1B1B1B">${H.join("\n")}</td></tr>
-<tr><td id="noreply" style="padding:0 28px 18px"><div style="border:1px solid #F3C4B2;background:#FFF4EF;border-radius:10px;padding:12px 14px;font:14px/1.5 Arial,Helvetica,sans-serif;color:#7A2E12">${noReplyH}</div></td></tr>
 <tr><td style="padding:14px 28px 24px;font:12px/1.5 Arial,Helvetica,sans-serif;color:#6B6B6B;border-top:1px solid #EEE">${footH}</td></tr>
 </table></td></tr></table></body></html>`;
-  const text=[`Subject: ${subject}`,...T,noReplyT,footT].join("\n\n").replace(/\n{3,}/g,"\n\n");
+  const text=[`Subject: ${subject}`,...T,footT].join("\n\n").replace(/\n{3,}/g,"\n\n");
   return {subject, html, text, missing: emailMissing(tier.id,cfg)};
 }
 function emailStatus(entry, cfg){
@@ -1271,7 +1243,7 @@ async function paintTab(){
     const ec=emailCfg(cfg), tid=ST.emailTier, tier=cfg.tiers.find(t=>t.id===tid), type=emailType(tid), td=ec.tiers[tid]||{};
     const miss=emailMissing(tid,cfg);
     const fieldHtml=(k,label,req,hint,val,attr)=>`<div class="field"><label class="lbl" for="${attr}-${k}">${esc(label)}${req?' <span class="req">*</span>':''}</label>
-      <textarea id="${attr}-${k}" data-${attr}="${k}" rows="${k==="description"||k==="services"||k==="conditions"||k==="redeem"||k==="claim"?3:1}" style="min-height:44px">${esc(val||"")}</textarea>
+      <textarea id="${attr}-${k}" data-${attr}="${k}" rows="${k==="body"?26:k==="phones"?3:1}" style="min-height:44px">${esc(val||"")}</textarea>
       ${hint?`<div class="hint">${esc(hint)}</div>`:""}</div>`;
     host.innerHTML=`
       <div class="alertbox" style="border-color:var(--orange-dim);background:var(--orange-soft)"><b>Emails are sent by hand.</b> Go to <b>Entries → Send email</b> to review, edit and send each author's email. This tab sets the template each prize starts from. Connection and test sends are in <b>Settings → Email sending</b>.</div>
