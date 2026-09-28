@@ -52,6 +52,9 @@ function renderEmail(entry, prize, shared = {}, preview = false) {
     x = x.split("[First Name]").join(html ? esc(first) : first);
     x = x.split("[Book Title]").join(book ? (html ? `<em>${esc(book)}</em>` : `"${book}"`) : (html ? "your book" : "your book"));
     x = x.split("[Claim Reference]").join(html ? `<strong style="letter-spacing:.08em">${esc(ref)}</strong>` : ref);
+    // [label](https://...) becomes a real link in HTML and "label: url" in plain text
+    x = x.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g,
+      (m, label, url) => html ? `<a href="${url}" style="color:#FE5D29">${label}</a>` : `${label}: ${url}`);
     return x;
   };
   const leadIn = (t, html) => {           // bold a short "Label:" opener, as the letters do
