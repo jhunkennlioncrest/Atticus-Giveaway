@@ -594,15 +594,15 @@ async function render(){
       <div id="formErr" class="alertbox" role="alert" hidden></div>
       <form id="entry" novalidate class="formgrid">
         <div class="field"><label class="lbl" for="f-name">Full name <span class="req">*</span></label>
-          <input id="f-name" type="text" autocomplete="name" value="${esc(f.name||"")}" aria-describedby="e-name"><div class="err" id="e-name">Please enter your name.</div></div>
+          <input id="f-name" type="text" autocomplete="off" autocorrect="off" spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" value="${esc(f.name||"")}" aria-describedby="e-name"><div class="err" id="e-name">Please enter your name.</div></div>
         <div class="field"><label class="lbl" for="f-book">Book title <span class="req">*</span></label>
           <input id="f-book" type="text" value="${esc(f.book||"")}" aria-describedby="e-book"><div class="err" id="e-book">A working title is fine.</div></div>
         <div class="field"><label class="lbl" for="f-email">Email <span class="req">*</span></label>
-          <input id="f-email" type="email" inputmode="email" autocomplete="email" value="${esc(f.email||"")}" aria-describedby="e-email"><div class="err" id="e-email">Please check the email address.</div></div>
+          <input id="f-email" type="email" inputmode="email" autocomplete="off" autocorrect="off" spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" value="${esc(f.email||"")}" aria-describedby="e-email"><div class="err" id="e-email">Please check the email address.</div></div>
         <div class="field"><label class="lbl" for="f-phone">Phone <span class="req">*</span></label>
           <div class="phone"><label class="sr" for="f-cc">Country code</label>
             <select id="f-cc">${CODES.map(([v,l])=>`<option value="${v}" ${f.cc===v?"selected":""}>${l}</option>`).join("")}</select>
-            <input id="f-phone" type="tel" inputmode="tel" autocomplete="tel-national" value="${esc(f.phone||"")}" aria-describedby="h-phone e-phone"></div>
+            <input id="f-phone" type="tel" inputmode="tel" autocomplete="off" autocorrect="off" spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" value="${esc(f.phone||"")}" aria-describedby="h-phone e-phone"></div>
           <div class="hint" id="h-phone">${esc(phoneHint(f.cc||"+1"))}</div>
           <div class="err" id="e-phone">Please check the number.</div></div>
         <div class="consent" id="consentBox">
@@ -1145,7 +1145,7 @@ function staffGate(){
     <h2>Staff access</h2>
     <p class="muted small">Kiosk lock only. It keeps visitors out of the controls; it is not account security.</p>
     <form id="gate"><div class="field"><label class="lbl" for="pin">PIN</label>
-      <input id="pin" type="password" inputmode="numeric" autocomplete="off"><div class="err" id="e-pin">Wrong PIN.</div></div>
+      <input id="pin" type="password" inputmode="numeric" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other"><div class="err" id="e-pin">Wrong PIN.</div></div>
       <div class="field"><label class="lbl" for="who">Your name</label><input id="who" type="text" value="${esc(ST.by)}"></div>
       <button class="btn" type="submit">Open controls</button></form>
     <button class="btn ghost" style="margin-top:.8rem" data-act="exit-staff">Back to the wheel</button></section>`;
@@ -1161,15 +1161,15 @@ function adminGate(){
     ${logo("sm")}<h2>${esc(title)}</h2><p class="small muted">${esc(note)}</p>${form}</div></div>`;
   if(!SRV.signedIn) return wrap("Admin sign in",
     "Sign in once on this tablet. After that the PIN reopens the view.",
-    `<div class="field"><label class="lbl" for="ad-email">Email</label><input id="ad-email" type="email" autocomplete="username"></div>
-     <div class="field"><label class="lbl" for="ad-pass">Password</label><input id="ad-pass" type="password" autocomplete="current-password"></div>
+    `<div class="field"><label class="lbl" for="ad-email">Email</label><input id="ad-email" type="email" autocomplete="off" autocorrect="off" spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other"></div>
+     <div class="field"><label class="lbl" for="ad-pass">Password</label><input id="ad-pass" type="password" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other"></div>
      <p class="small" id="ad-msg" style="color:var(--bad)" hidden></p>
      <div class="row"><button class="btn" data-act="admin-login">Sign in</button>
      <button class="btn ghost" data-act="exit-staff">Back to the wheel</button></div>
      <p class="small muted" style="margin-top:.6rem"><button class="linkbtn" data-act="admin-forgot">Forgotten password?</button></p>`);
   return wrap(`PIN for ${(SRV.admin&&(SRV.admin.name||SRV.admin.email))||"admin"}`,
     "This tablet is signed in. Enter the PIN to open the admin view.",
-    `<div class="field"><label class="lbl" for="ad-pin">PIN</label><input id="ad-pin" type="password" inputmode="numeric" autocomplete="off"></div>
+    `<div class="field"><label class="lbl" for="ad-pin">PIN</label><input id="ad-pin" type="password" inputmode="numeric" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other"></div>
      <p class="small" id="ad-msg" style="color:var(--bad)" hidden></p>
      <div class="row"><button class="btn" data-act="admin-unlock">Open admin</button>
      <button class="btn ghost" data-act="exit-staff">Back to the wheel</button></div>
@@ -1312,10 +1312,10 @@ async function paintTab(){
       <button class="btn sm" style="margin-top:.7rem" data-act="save-weights">Save chances</button>
       <h3 style="color:var(--orange);margin-top:1.6rem">Email sending</h3>
       <p class="small muted">Emails go out from the live app's own server. Enter the sending key you set in Vercel once on each tablet. It stays on this tablet and isn't included in exports.</p>
-      <div class="field"><label class="lbl" for="s-sendkey">Sending key</label><input id="s-sendkey" type="password" autocomplete="off" value="${esc(sendKey())}" placeholder="Paste the KIOSK_SEND_KEY value"></div>
+      <div class="field"><label class="lbl" for="s-sendkey">Sending key</label><input id="s-sendkey" type="password" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" value="${esc(sendKey())}" placeholder="Paste the KIOSK_SEND_KEY value"></div>
       <div class="row"><button class="btn sm" data-act="send-key-save">Save key</button><button class="btn sm ghost" data-act="send-check" ${APP.installable?"":"disabled"}>Check connection</button></div>
       <p class="small" id="send-status" style="margin:.5rem 0">${APP.installable?"":"Sending only works in the live app, not in this preview."}</p>
-      <div class="field"><label class="lbl" for="s-testto">Send a test email to</label><input id="s-testto" type="email" placeholder="you@atticuspublishing.com"></div>
+      <div class="field"><label class="lbl" for="s-testto">Send a test email to</label><input id="s-testto" type="email" autocomplete="off" autocorrect="off" spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" placeholder="you@atticuspublishing.com"></div>
       <button class="btn sm ghost" data-act="send-test" ${APP.installable?"":"disabled"}>Send test email</button>
       <p class="small muted">The test uses the $2,500 voucher template (or the prize last selected in the Emails tab) with a sample author.</p>
       <h3 style="color:var(--orange);margin-top:1.6rem">This tablet</h3>
