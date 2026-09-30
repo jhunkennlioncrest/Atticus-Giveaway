@@ -285,6 +285,12 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 dialog{border:1px solid var(--line);background:var(--panel);color:var(--paper);border-radius:18px;width:min(560px,94vw);padding:0}
 dialog::backdrop{background:rgba(0,0,0,.72)}
 .dlg{padding:1.2rem}
+/* The composer's buttons must never sit below the fold: on a 1024x768 tablet the fixed
+   520px preview pushed them out of the dialog, so Send looked unavailable until staff
+   scrolled. The row now sticks to the bottom of the dialog and the preview shrinks. */
+.cmp-actions{position:sticky;bottom:calc(-1.2rem - 1px);z-index:2;background:var(--panel);
+  padding:.7rem 0 1.2rem;margin:0 0 -1.2rem;border-top:1px solid var(--line)}
+#cmpframe{height:clamp(220px,48vh,520px)}
 .banner{background:var(--orange-soft);border-bottom:1px solid var(--orange-dim);color:#FFD7C4;padding:.45rem 1rem;font-size:.8rem;text-align:center}
 .footnote{color:var(--muted);font-size:.78rem;text-align:center;padding:.6rem}
 #toast{position:fixed;left:50%;bottom:1.4rem;transform:translate(-50%,140%);background:var(--panel2);border:1px solid var(--line2);
@@ -1121,7 +1127,7 @@ function composerCheck(){
   let d=null, trouble="";
   try{ d=composerDraft(); }
   catch(ex){ trouble=`Couldn't read the letter (${ex&&ex.message||ex}). Close this email and open it again.`; }
-  if(!d && !trouble) trouble="The letter is still loading. Give it a moment, or close this email and open it again.";
+  if(!d && !trouble) trouble="Preparing the letter\u2026 Send becomes available in a moment.";
   const markers=!!d && MARKER_RE.test(d.subject+d.html), empty=!!d && !d.subject;
   const why = trouble ? trouble
             : !(SRV.on || canSend()) ? (APP.installable?"Enter the sending key in Settings → Email sending first.":"Sending works in the installed app, not in this preview.")
@@ -1144,28 +1150,40 @@ async function openComposer(key, forceNew=false){
       : `${last&&!last.ok?`<div class="alertbox small"><b>Last attempt failed:</b> ${esc(last.error||"")}</div>`:""}
          <p class="small muted" style="margin:0 0 .5rem">This is the letter our template made for this author. Click into the letter to change any wording. The signature and footer stay as they are.</p>`}
     <div class="field"><label class="lbl" for="cmp-subj">Subject</label><input id="cmp-subj" style="width:100%;min-height:46px;font-size:1rem;padding:.5rem .7rem" value="${esc(msg.subject)}" ${CMP.mode==="sent"?"readonly":""}></div>
-    <iframe id="cmpframe" title="Email for ${esc(e.name)}" style="width:100%;height:520px;border:1px solid var(--line);border-radius:12px;background:#F2F2F2"></iframe>
+    <iframe id="cmpframe" title="Email for ${esc(e.name)}" style="width:100%;border:1px solid var(--line);border-radius:12px;background:#F2F2F2"></iframe>
     <p id="cmp-why" class="small" style="color:var(--bad);margin:.5rem 0 0" hidden></p>
-    <div class="row" style="margin-top:.7rem">
+    <div class="row cmp-actions">
       ${CMP.mode==="sent"
         ? `<button class="btn sm ghost" data-act="cmp-again">Send another email</button><button class="btn sm" data-act="cmp-close">Close</button>`
         : `<button class="btn sm" id="cmp-send" data-act="cmp-send" disabled>Send email</button><button class="btn sm ghost" data-act="cmp-reset">Reset to template</button><button class="btn sm ghost" data-act="cmp-close">Cancel</button>`}
     </div></div>`;
   document.body.appendChild(d);
   const fr=$("#cmpframe",d);
-  /* An empty iframe can fire one "load" for its blank document before srcdoc is parsed.
-     Waiting for the letter itself means that stray event can't leave the composer dead. */
+  /* Two things used to leave Send dark and silent:
+       - the "load" event waits for the signature image, so a slow stand connection kept
+         the button disabled for seconds with nothing on screen to explain it;
+       - an empty iframe can fire one "load" for its blank document before srcdoc parses.
+     So we say "preparing" straight away, then enable as soon as the letter's DOM exists,
+     whether that news arrives via "load" or the poll below. Images are irrelevant to the
+     draft we build, so we never wait for them. */
   let wired=false;
-  fr.addEventListener("load",()=>{
+  const wire=()=>{
     const doc=fr.contentDocument, c=doc&&doc.getElementById("content");
-    if(!doc || !c || wired) return;
+    if(!doc || !c || wired) return false;
     wired=true;
     if(CMP.mode==="edit"){ c.contentEditable="true"; c.style.outline="2px dashed #FE5D29"; c.style.outlineOffset="-6px";
       doc.addEventListener("input",composerCheck); doc.addEventListener("keyup",composerCheck); }
     doc.addEventListener("click",ev=>{ if(ev.target.closest("a")) ev.preventDefault(); });   // links don't navigate while reviewing
     composerCheck();
-  });
+    return true;
+  };
+  fr.addEventListener("load",wire);
   fr.srcdoc=msg.html;
+  composerCheck();                       // show the waiting state before anything parses
+  let tries=0;
+  const poll=setInterval(()=>{
+    if(wire() || ++tries>120 || !document.getElementById("cmpdlg")){ clearInterval(poll); composerCheck(); }
+  },80);
   $("#cmp-subj",d).addEventListener("input",composerCheck);
   d.addEventListener("cancel",ev=>{ev.preventDefault(); closeComposer();});
   d.showModal();
