@@ -1,5 +1,5 @@
 /* Vercel entry point. Talks to Supabase with the service key, which never leaves the server. */
-const { run, unlockTools } = require("./_core.js");
+const { run, unlockTools, tabletTools } = require("./_core.js");
 const { renderEmail } = require("./_email.js");
 
 const URL_ = () => process.env.SUPABASE_URL, KEY = () => process.env.SUPABASE_SERVICE_KEY;
@@ -130,7 +130,8 @@ module.exports = async function handler(req, res) {
   }
   const ctx = { db, auth, headers: req.headers, campaign: CAMPAIGN(),
                 kioskKey: process.env.KIOSK_DEVICE_KEY || "", renderEmail, sendMail,
-                unlock: unlockTools(process.env.ADMIN_SIGNING_SECRET) };
+                unlock: unlockTools(process.env.ADMIN_SIGNING_SECRET),
+                tablet: tabletTools(process.env.ADMIN_SIGNING_SECRET) };
   try {
     const data = await run(ctx, String(body.op || ""), body);
     // the session cookie is set and cleared by the server; page scripts can't read it
@@ -142,6 +143,8 @@ module.exports = async function handler(req, res) {
     res.statusCode = 200; res.end(JSON.stringify({ ok: true, ...data }));
   } catch (err) {
     res.statusCode = err.code && err.code >= 400 && err.code < 600 ? err.code : 500;
-    res.end(JSON.stringify({ ok: false, error: String(err.message || err) }));
+    if (err.retryAfterSeconds) res.setHeader("Retry-After", String(err.retryAfterSeconds));
+    res.end(JSON.stringify({ ok: false, error: String(err.message || err),
+      retryAfterSeconds: err.retryAfterSeconds || undefined }));
   }
 };

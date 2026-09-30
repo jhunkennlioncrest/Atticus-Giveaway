@@ -34,6 +34,38 @@ function unlockTools(secret, minutes = 60) {
   };
 }
 
+/* A booth tablet's rate-limit identity. Staff mint one from an unlocked admin view;
+   the tablet then presents it on public draw/done calls so each tablet is counted
+   separately instead of the whole stand sharing one address.
+
+   Deliberately NOT a credential: it is signed so a participant cannot invent one,
+   but it authorises nothing. Every admin operation still demands the signed-in
+   session and a current PIN unlock. Losing one leaks no access. */
+function tabletTools(secret, days = 30) {
+  const sign = data => crypto.createHmac("sha256", secret || "dev-secret").update("tablet|" + data).digest("hex").slice(0, 32);
+  return {
+    issue(label) {
+      const id = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+      const exp = Date.now() + days * 86400000;
+      const name = String(label || "").replace(/[^A-Za-z0-9 _-]/g, "").slice(0, 24);
+      const body = `${id}.${exp}.${encodeURIComponent(name)}`;
+      return { token: `${body}.${sign(body)}`, id, name, expiresAt: exp };
+    },
+    // returns the tablet id when the signature and expiry hold, otherwise ""
+    idOf(token) {
+      const parts = String(token || "").split(".");
+      if (parts.length !== 4) return "";
+      const [id, exp, name, sig] = parts;
+      if (!/^[a-f0-9]{12}$/.test(id)) return "";
+      if (!Number(exp) || Number(exp) < Date.now()) return "";
+      const want = sign(`${id}.${exp}.${name}`);
+      if (sig.length !== want.length) return "";
+      try { return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(want)) ? id : ""; }
+      catch { return ""; }
+    }
+  };
+}
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const MARKER_RE = /\[(To confirm|currency to confirm)/i;
 
@@ -79,10 +111,35 @@ function callerBucket(ctx) {
   const ip = String(ctx.headers["x-forwarded-for"] || ctx.headers["x-real-ip"] || "local").split(",")[0].trim();
   return crypto.createHash("sha256").update("fbf26|" + ip).digest("hex").slice(0, 32);   // stored hashed, not as an address
 }
-async function limitPublic(ctx, kind, limit, minutes) {
-  const ok = await ctx.db.rpc("app_rate_ok", { p_bucket: callerBucket(ctx), p_kind: kind, p_limit: limit, p_minutes: minutes });
-  if (!ok) throw bad("Too many tries from this connection. Wait a few minutes and try again.", 429);
+/* Every tablet on the stand shares one public address, so counting by address alone
+   made the whole booth share a single allowance. An authorised tablet is counted on
+   its own; anything unrecognised keeps the original, tighter address-based cap. */
+function rateTarget(ctx, kind) {
+  const id = ctx.tablet ? ctx.tablet.idOf(ctx.headers["x-tablet"] || "") : "";
+  if (id) return { bucket: "tab:" + id, ...RATE[kind].tablet, authorised: true };
+  return { bucket: callerBucket(ctx), ...RATE[kind].public, authorised: false };
 }
+async function limitPublic(ctx, kind) {
+  const t = rateTarget(ctx, kind);
+  const ok = await ctx.db.rpc("app_rate_ok", { p_bucket: t.bucket, p_kind: kind, p_limit: t.limit, p_minutes: t.minutes });
+  if (!ok) {
+    const wait = t.minutes === 1 ? "a moment" : `about ${t.minutes} minutes`;
+    const e = bad(t.authorised
+      ? `This tablet is going faster than the system allows. Wait ${wait} and tap again — nothing was lost.`
+      : `Too many tries from this connection. Wait ${wait} and try again.`, 429);
+    e.retryAfterSeconds = t.minutes * 60;
+    throw e;
+  }
+}
+
+/* Allowances. An authorised booth tablet gets a per-minute allowance far above what a
+   human queue can produce (one author takes a minute or more to enter and spin), so it
+   never blocks real use but still stops a runaway loop. Unauthorised callers keep the
+   original conservative cap. Only draw and done are limited; reading state is not. */
+const RATE = {
+  draw: { tablet: { limit: 30, minutes: 1 }, public: { limit: 12, minutes: 10 } },
+  done: { tablet: { limit: 60, minutes: 1 }, public: { limit: 30, minutes: 10 } }
+};
 
 const OPS = {
   /* ---------------- participant ---------------- */
@@ -96,7 +153,7 @@ const OPS = {
 
   // one transaction in the database: checks the author, picks by weight, takes the stock
   async draw(ctx, body) {
-    await limitPublic(ctx, "draw", 12, 10);
+    await limitPublic(ctx, "draw");
     const f = body.form || {};
     if (!EMAIL_RE.test(String(f.email || ""))) throw bad("That email address doesn't look right.");
     if (!String(f.name || "").trim()) throw bad("A name is needed.");
@@ -111,7 +168,7 @@ const OPS = {
   /* Done: the author has seen their prize. The confirmation is always queued for staff
      review. Nothing is transmitted here under any condition. */
   async done(ctx, body) {
-    await limitPublic(ctx, "done", 30, 10);
+    await limitPublic(ctx, "done");
     const id = String(body.entryId || "");
     const entry = await ctx.db.rpc("app_entry", { p_campaign: ctx.campaign, p_id: id });
     if (!entry) throw bad("That entry no longer exists.", 404);
@@ -175,6 +232,13 @@ const OPS = {
     if (!jti) return { ok: true, locked: true, note: "Nothing to lock: this tablet wasn't unlocked." };
     await ctx.db.rpc("app_unlock_revoke", { p_jti: jti, p_user: admin.user_id });
     return { ok: true, locked: true };
+  },
+  /* Mints this tablet's rate-limit identity. Requires a signed-in admin AND a current
+     PIN unlock, so a participant can never obtain one. The token grants no access. */
+  async tabletToken(ctx, body) {
+    await requireUnlocked(ctx);
+    const t = ctx.tablet.issue(body.label || "");
+    return { tablet: t };
   },
   async setPin(ctx, body) {
     const admin = await requireUnlocked(ctx);
@@ -320,4 +384,4 @@ async function run(ctx, op, body) {
   return await fn(ctx, body || {});
 }
 
-module.exports = { run, OPS, EMAIL_RE, MARKER_RE, unlockTools };
+module.exports = { run, OPS, EMAIL_RE, MARKER_RE, unlockTools, tabletTools, RATE };

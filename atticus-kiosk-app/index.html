@@ -456,6 +456,9 @@ const Engine = {
   draw(tiers){const units=tiers.map(t=>Math.round(Number(t.weight)*100));const total=units.reduce((a,b)=>a+b,0);
     const r=randInt(total);let acc=0;for(let i=0;i<tiers.length;i++){acc+=units[i];if(r<acc)return tiers[i];}return tiers[tiers.length-1];},
   async enterAndSpin(form){
+    if(SERVER_REQUIRED && !SRV.on){          // belt and braces: never award without the server
+      const e=new Error("Can't reach the system."); e.offline=true; throw e;
+    }
     const email=normEmail(form.email); const key=await sha256("fbf26|"+email);
     return S.lock("award", async()=>{
       const existing=await S.get("entries/"+key);
@@ -678,6 +681,17 @@ async function render(){
       <button class="btn wide" data-act="done" style="max-width:360px">Done</button></section>`;
     setTimeout(()=>{ if(V.screen==="already") startOver(); },12000);
   }
+  else if(V.screen==="offline"){
+    app.innerHTML=`<section class="screen attract">
+      ${logo()}
+      <h1 style="font-size:clamp(1.8rem,4.5vw,3rem)">Just a moment</h1>
+      <p style="max-width:44ch">This tablet can't reach the giveaway system right now, so we can't record an entry or award a prize yet.</p>
+      <p class="small muted" style="max-width:44ch">Please ask a team member — your details and prize are safe once the connection is back.</p>
+      <div class="pulse" style="margin-top:1.2rem"><button class="btn wide" style="min-width:300px" data-act="retry-server">Try again</button></div>
+      <p class="small muted" id="offmsg" style="margin-top:1rem" aria-live="polite"></p>
+    </section>
+    <div class="footnote">v${APP_VERSION} · <button class="linkbtn" data-act="staff">Staff access</button></div>`;
+  }
   else if(V.screen==="closed"){
     app.innerHTML=`<section class="screen result">${topbar()}
       <h1>That's a wrap</h1>
@@ -736,6 +750,19 @@ function wireForm(){
   });
 }
 
+/* After a dropped connection, find out whether the draw actually committed. */
+async function recoverEntry(){
+  for(let i=0;i<3;i++){
+    await sleep(700*(i+1));
+    try{
+      const r=await Engine.enterAndSpin(V.form);
+      if(r && r.entry) return r.state==="already"
+        ? { state:"won", entry:r.entry, tier:(V.cfg.tiers.find(t=>t.id===r.entry.tierId)) }
+        : r;
+    }catch(e){ if(e && e.code==="closed") return null; }
+  }
+  return null;
+}
 async function doSpin(){
   if(V.busy) return; V.busy=true;
   const btn=$("#spin"), st=$("#status"); btn.disabled=true; st.textContent="Drawing your prize…";
@@ -744,7 +771,28 @@ async function doSpin(){
   try{ res=await Engine.enterAndSpin(V.form); }
   catch(err){
     if(err.code==="closed"){ V.busy=false; V.screen="closed"; return render(); }
-    st.textContent="Connection problem. Tap spin again."; btn.disabled=false; V.busy=false; return;
+    /* The draw may already have been recorded before the connection dropped. Ask the
+       server: a repeat of the same address returns the entry it saved, so the author
+       sees the prize they actually won instead of being given a second one. */
+    if(err.offline || err.status===0){
+      const found = await recoverEntry();
+      if(found){ res=found; }
+      else {
+        V.busy=false; btn.disabled=false;
+        if(SERVER_REQUIRED){ V.screen="offline"; return render(); }
+        st.textContent="Can't reach the system. Ask a team member."; return;
+      }
+    }
+    else if(err.status===429){
+      const secs=err.retryAfterSeconds||60;
+      const wait=secs>=120?`about ${Math.round(secs/60)} minutes`:secs>=60?"about a minute":`${secs} seconds`;
+      st.textContent=`One moment — the system is catching up. Try again in ${wait}. Nothing was lost.`;
+      btn.disabled=true; V.busy=false;
+      setTimeout(()=>{ const b=$("#spin"); if(b){ b.disabled=false; const t=$("#status");
+        if(t) t.textContent="Ready when you are."; } }, Math.min(secs,90)*1000);
+      return;
+    }
+    else { st.textContent=err.message||"Something went wrong. Tap spin again."; btn.disabled=false; V.busy=false; return; }
   }
   if(res.state==="already"){
     // A retry after a dropped connection finds the entry this same spin just saved: show it.
@@ -1313,7 +1361,7 @@ async function paintTab(){
       <h3 style="color:var(--orange);margin-top:1.6rem">Chances</h3>
       <p class="small muted">Set the chance for each prize. Use 0% to take one off the wheel. On save, the rest are scaled so the total is always 100%.</p>
       <table><tbody>${cfg.tiers.map((t,i)=>`<tr><td><span class="dot" style="background:${t.color}"></span>${esc(t.name)}</td>
-        <td class="num" style="width:7rem"><label class="sr" for="w${i}">Chance for ${esc(t.name)}</label><input id="w${i}" type="number" min="0" max="100" step="0.5" value="${t.weight}" data-w="${i}" style="min-height:42px;padding:.3rem .5rem"></td></tr>`).join("")}
+        <td class="num" style="width:7rem"><label class="sr" for="w${i}">Chance for ${esc(t.name)}</label><input id="w${i}" type="number" min="0" max="1000000" step="1" inputmode="numeric" value="${t.weight}" data-w="${i}" style="min-height:42px;padding:.3rem .5rem"></td></tr>`).join("")}
         <tr><th>Total</th><th class="num" id="wt">${cfg.tiers.reduce((s,t)=>s+Number(t.weight),0)}%</th></tr></tbody></table>
       <button class="btn sm" style="margin-top:.7rem" data-act="save-weights">Save chances</button>
       <h3 style="color:var(--orange);margin-top:1.6rem">Email sending</h3>
@@ -1444,6 +1492,14 @@ document.addEventListener("click", async ev=>{
       }catch(err){ toast("Saved, but the email couldn't be queued: "+err.message,"bad"); }
     }
   }
+  else if(act==="retry-server"){
+    const msg=$("#offmsg"); if(msg) msg.textContent="Checking…";
+    if(await detectServer()){
+      useServerEngine(); await refreshTabletToken();
+      try{ const me=await api("me"); SRV.signedIn=true; SRV.admin=me.admin; }catch{}
+      V.screen="attract"; await render(); toast("Back online.");
+    } else if(msg) msg.textContent="Still no connection. Check the tablet's Wi-Fi, then tap Try again.";
+  }
   else if(act==="spin"){ doSpin(); }
   else if(act==="chances"){ showChances(); }
   else if(act==="close-chances"){ $("#chancedlg")?.close(); }
@@ -1528,13 +1584,14 @@ document.addEventListener("click", async ev=>{
     if(!email||!pass){ msg.hidden=false; msg.textContent="Enter your email and password."; return; }
     try{ const r=await api("login",{email,password:pass});
       SRV.signedIn=true; SRV.admin=r.admin; SRV.unlock=r.unlock; ST.by=r.admin.name||r.admin.email;
+      refreshTabletToken();
       ST.open=true; await renderStaff(); toast(`Signed in as ${r.admin.email}.`); }
     catch(err){ msg.hidden=false; msg.textContent=err.message; }
   }
   else if(act==="admin-unlock"){
     const pin=$("#ad-pin").value.trim(), msg=$("#ad-msg");
     try{ const r=await api("unlock",{pin}); SRV.unlock=r.unlock; SRV.admin=r.admin;
-      ST.by=r.admin.name||r.admin.email; ST.open=true; await renderStaff(); }
+      ST.by=r.admin.name||r.admin.email; ST.open=true; refreshTabletToken(); await renderStaff(); }
     catch(err){ msg.hidden=false; msg.textContent=err.message; $("#ad-pin").value=""; }
   }
   else if(act==="hand-over"){
@@ -1612,12 +1669,30 @@ document.addEventListener("click", async ev=>{
     await Engine.saveConfig(cfg,ST.by,"kiosk settings updated"); renderStaff(); toast("Settings saved.");
   }
   else if(act==="save-weights"){
-    const cfg=clone(V.cfg); const changes=[];
-    cfg.tiers.forEach((t,i)=>{const w=Math.max(0,Number($(`[data-w="${i}"]`).value||0)); if(w!==Number(t.weight)){changes.push(`${t.name} ${t.weight}% to ${w}%`); t.weight=w;}});
+    /* Chances are RELATIVE WEIGHTS, not percentages: they need not total anything in
+       particular. They are stored exactly as typed. (They used to be rescaled to total
+       100, which produced fractions the database rejects, so no change could be saved
+       unless the total happened to land on 100.) */
+    const cfg=clone(V.cfg); const changes=[]; let bad=null;
+    cfg.tiers.forEach((t,i)=>{
+      const raw=String($(`[data-w="${i}"]`).value||"").trim();
+      const w=Number(raw);
+      if(raw==="" || !Number.isFinite(w) || !Number.isInteger(w) || w<0 || w>1000000){
+        bad=bad||`${t.name}: enter a whole number from 0 upwards (0 takes it off the wheel).`; return;
+      }
+      if(w!==Number(t.weight)){ changes.push(`${t.name} ${t.weight} to ${w}`); t.weight=w; }
+    });
+    if(bad){ toast(bad,"bad"); return; }
     if(!changes.length){ toast("Nothing changed."); return; }
-    const note=rebase(cfg);
-    await Engine.saveConfig(cfg,ST.by,"chances: "+changes.join(", ")+(note?"; re-based to 100%":"")); renderStaff();
-    toast(note ? "Saved. The other prizes took up the difference so the total is 100%:\n"+note : "Chances saved.");
+    const live=cfg.tiers.filter(t=>t.active&&Number(t.weight)>0);
+    if(!live.length && !(await confirmDlg("Take every prize off the wheel?",
+        "Every chance would be 0, so nobody can win anything and authors will see the closed screen.","Yes, close the wheel"))) return;
+    try{
+      await Engine.saveConfig(cfg,ST.by,"chances: "+changes.join(", "));
+    }catch(err){ toast(err.message||"That didn't save.","bad"); renderStaff(); return; }
+    renderStaff();
+    const tot=cfg.tiers.filter(t=>t.active&&Number(t.weight)>0).reduce((s,t)=>s+Number(t.weight),0);
+    toast("Chances saved. "+(tot?`Top prize is now ${(Number(cfg.tiers[0].weight)/tot*100).toFixed(1)}%.`:"No prize can be won."));
   }
   else if(act==="wipe"){
     if(!(await confirmDlg("Delete every entry?","This clears all entries stored on this tablet. Export them first if you need them.","Delete them"))) return;
@@ -1634,14 +1709,37 @@ document.addEventListener("keydown",ev=>{ resetIdle();
    Server mode: when /api/app answers, entries, prizes and stock live in the
    shared database instead of this tablet, and the admin area needs a login.
    =========================================================================== */
-const SRV = { on:false, campaign:null,          // the deployment decides, not the URL
+/* This build is served by its own API, so the server is the only place a prize may be
+   decided. If it cannot be reached the kiosk stops and says so. It must NEVER fall back
+   to drawing in the browser: those entries reach no database, take no stock, are never
+   emailed and vanish with the cache. */
+const SERVER_REQUIRED = /^https?:$/.test(location.protocol) && !!location.host;
+const TABLET_TOKEN_STORE = "atticus-tablet-token";
+function tabletToken(){ try{ return localStorage.getItem(TABLET_TOKEN_STORE)||""; }catch{ return ""; } }
+function setTabletToken(v){ try{ v?localStorage.setItem(TABLET_TOKEN_STORE,v):localStorage.removeItem(TABLET_TOKEN_STORE); }catch{} }
+const SRV = { on:false, campaign:null, reachable:null, lastError:"",   // the deployment decides, not the URL
               unlock:"", admin:null, signedIn:false, testMode:false, state:null };
 async function api(op, body={}, extra={}){
-  const r = await fetch("/api/app", { method:"POST", credentials:"same-origin",
-    headers:{ "content-type":"application/json", ...(SRV.unlock?{"x-unlock":SRV.unlock}:{}), ...extra },
+  let r;
+  try{
+    r = await apiFetch(op, body, extra);
+  }catch(netErr){                      // no reply at all: the tablet is offline
+    SRV.reachable=false; SRV.lastError=String(netErr&&netErr.message||netErr);
+    const e=new Error("Can't reach the system."); e.offline=true; throw e;
+  }
+  SRV.reachable=true;
+  return await apiRead(r);
+}
+async function apiFetch(op, body={}, extra={}){
+  return await fetch("/api/app", { method:"POST", credentials:"same-origin",
+    headers:{ "content-type":"application/json", ...(SRV.unlock?{"x-unlock":SRV.unlock}:{}),
+              ...(tabletToken()?{"x-tablet":tabletToken()}:{}), ...extra },
     body: JSON.stringify({ op, ...body }) });
+}
+async function apiRead(r){
   let j={}; try{ j=await r.json(); }catch{}
-  if(!r.ok || !j.ok){ const e=new Error(j.error||`Server answered ${r.status}`); e.status=r.status; throw e; }
+  if(!r.ok || !j.ok){ const e=new Error(j.error||`Server answered ${r.status}`); e.status=r.status;
+    e.retryAfterSeconds=Number(j.retryAfterSeconds||r.headers.get("retry-after")||0)||0; throw e; }
   return j;
 }
 const COLORS = Object.fromEntries(DEFAULT_CONFIG.tiers.map(t=>[t.id,t.color]));
@@ -1660,6 +1758,17 @@ async function detectServer(){
   try{ SRV.state = await api("state"); SRV.on = true; SRV.campaign = SRV.state.campaign.id; }
   catch(err){ SRV.on = [401,423,429].includes(err.status); }
   return SRV.on;
+}
+/* Asks the server for this tablet's rate-limit identity. Needs a signed-in, unlocked
+   admin, so it only succeeds when staff have set the tablet up. Silent on failure:
+   the tablet then simply shares the stricter public allowance. */
+async function refreshTabletToken(){
+  if(!SRV.on || !SRV.unlock) return false;
+  try{
+    const r=await api("tabletToken",{ label:(V.cfg&&V.cfg.standTablet)||"Tablet" });
+    if(r && r.tablet && r.tablet.token){ setTabletToken(r.tablet.token); return true; }
+  }catch{}
+  return false;
 }
 function useServerEngine(){
   Engine.config = async () => {
@@ -1687,8 +1796,14 @@ function useServerEngine(){
     const before = (V.cfg && V.cfg.tiers) || [];
     for(const t of cfg.tiers){
       const b = before.find(x=>x.id===t.id) || {};
-      if(b.weight!==t.weight || b.limit!==t.limit || b.active!==t.active || (b.infoUrl||"")!==(t.infoUrl||""))
-        await api("prizeSave", { prize:{ id:t.id, weight:t.weight, limit:t.limit, active:t.active, infoUrl:t.infoUrl||"" } });
+      if(b.weight!==t.weight || b.limit!==t.limit || b.active!==t.active || (b.infoUrl||"")!==(t.infoUrl||"")){
+        try{
+          await api("prizeSave", { prize:{ id:t.id, weight:t.weight, limit:t.limit, active:t.active, infoUrl:t.infoUrl||"" } });
+        }catch(err){
+          V.cfg = await Engine.config();          // show what actually saved, never a guess
+          throw new Error(`${t.name}: ${err.message||"could not be saved."}`);
+        }
+      }
     }
     V.cfg = await Engine.config(); return V.cfg;
   };
@@ -1715,6 +1830,10 @@ function useServerEngine(){
   if(await detectServer()){
     useServerEngine();
     try{ const me = await api("me"); SRV.signedIn = true; SRV.admin = me.admin; }catch{}
+    await refreshTabletToken();
+  } else if(SERVER_REQUIRED){
+    /* Served build with no server: stop. Never draw in the browser. */
+    V.screen="offline";
   }
   await render();
 })();
