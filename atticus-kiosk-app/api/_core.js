@@ -148,7 +148,10 @@ const OPS = {
       ctx.db.rpc("wheel_state", { p_campaign: ctx.campaign }),
       ctx.db.rpc("app_campaign", { p_campaign: ctx.campaign }),
       ctx.db.rpc("app_settings_get", { p_key: settingsKey(ctx, "email_shared") })]);
-    return { campaign, prizes, shared: shared || {} };
+    // the address confirmations are sent FROM, so staff screens can show the real sender
+    // rather than the staff member who pressed Send. Public information: it is on every
+    // email we send. No credential is exposed.
+    return { campaign, prizes, shared: shared || {}, sender: senderIdentity() };
   },
 
   // one transaction in the database: checks the author, picks by weight, takes the stock
@@ -368,6 +371,16 @@ async function sendFor(ctx, entry, msg, opts) {
       p_error: String(err.message || err).slice(0, 200) });
     return { status: "failed", error: String(err.message || err) };
   }
+}
+
+/* Splits FROM_ADDRESS ("Atticus Publishing <info@atticuspublishing.com>") into its
+   display name and address. This is the deployment's configured sender; it is not a
+   per-message historical record, so screens must not present it as one. */
+function senderIdentity() {
+  const raw = String(process.env.FROM_ADDRESS || "").trim();
+  if (!raw) return null;
+  const m = raw.match(/^\s*"?(.*?)"?\s*<([^>]+)>\s*$/);
+  return m ? { name: m[1].trim(), address: m[2].trim() } : { name: "", address: raw };
 }
 
 function settingsKey(ctx, key) {

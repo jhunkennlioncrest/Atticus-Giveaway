@@ -972,8 +972,23 @@ function renderEmail(entry, cfg, preview=false){
   const text=[`Subject: ${subject}`,...T,footT].join("\n\n").replace(/\n{3,}/g,"\n\n");
   return {subject, html, text, missing: emailMissing(tier.id,cfg)};
 }
+/* Who the email came FROM, versus who pressed Send. These are different things and the
+   screen used to blur them: "Sent ... by John" read as though John were the sender.
+   The sender is the deployment's configured From address; the staff name is the audit
+   record of who authorised the send. Both are shown, separately and labelled. */
+function sentDetails(e, cfg){
+  const s=cfg&&cfg.sender, rows=[];
+  if(s&&s.address){
+    rows.push(`<b>From:</b> ${esc(s.name||"Atticus Publishing")} \u00b7 ${esc(s.address)}`);
+  }
+  if(e.mail&&e.mail.sentBy) rows.push(`<b>Sent by staff member:</b> ${esc(e.mail.sentBy)}`);
+  if(e.mail&&e.mail.sentAt) rows.push(`<b>Date:</b> ${esc(fmt(e.mail.sentAt))}`);
+  if(e.mail&&e.mail.sentCount>1) rows.push(`<b>Times sent:</b> ${e.mail.sentCount}`);
+  rows.push(`<span class="muted">Inbox placement is not tracked.</span>`);
+  return rows.join("<br>");
+}
 function emailStatus(entry, cfg){
-  if(entry.mail?.status==="sent") return {label:"Sent \u00b7 accepted by provider", kind:"on"};
+  if(entry.mail?.status==="sent") return {label:"Sent \u2014 accepted by email provider", kind:"on"};
   if(entry.mail?.status==="failed") return {label:`Failed (${(entry.mail.attempts||[]).length} attempt${(entry.mail.attempts||[]).length>1?"s":""}): retry`, kind:"off"};
   const miss=emailMissing(entry.tierId,cfg);
   if(miss.length) return {label:`Not sent · ${miss.length} detail${miss.length>1?"s":""} to fill`, kind:"off"};
@@ -1125,7 +1140,7 @@ async function openComposer(key, forceNew=false){
   d.innerHTML=`<div class="dlg">
     <h2 style="font-size:1.15rem">${CMP.mode==="sent"?"Sent email":"Review and send"}: ${esc(e.name)}</h2>
     <p class="small" style="margin:.2rem 0 .6rem"><b>To:</b> ${esc(e.email)} · <b>Prize:</b> ${esc(e.prize)} · ${esc(e.claimRef)} · <span class="badge ${st.kind}">${esc(st.label)}</span></p>
-    ${CMP.mode==="sent"?`<div class="okbox small">Sent ${esc(fmt(e.mail.sentAt))}${e.mail.sentBy?` by ${esc(e.mail.sentBy)}`:""}${e.mail.sentCount>1?` · ${e.mail.sentCount} emails sent in total`:""}. The provider accepted it for delivery; that is not the same as confirmed delivery to the inbox.</div>`
+    ${CMP.mode==="sent"?`<div class="okbox small">${sentDetails(e,cfg)}</div>`
       : `${last&&!last.ok?`<div class="alertbox small"><b>Last attempt failed:</b> ${esc(last.error||"")}</div>`:""}
          <p class="small muted" style="margin:0 0 .5rem">This is the letter our template made for this author. Click into the letter to change any wording. The signature and footer stay as they are.</p>`}
     <div class="field"><label class="lbl" for="cmp-subj">Subject</label><input id="cmp-subj" style="width:100%;min-height:46px;font-size:1rem;padding:.5rem .7rem" value="${esc(msg.subject)}" ${CMP.mode==="sent"?"readonly":""}></div>
@@ -1776,6 +1791,7 @@ function useServerEngine(){
     return { ...DEFAULT_CONFIG, campaignId:r.campaign.id, campaignName:r.campaign.name,
       isPreview:!!r.campaign.is_preview, claimDays:r.campaign.claim_days,
       rulesVersion:r.campaign.rules_version, consentVersion:r.campaign.consent_version,
+      sender:r.sender||null,
       tiers:r.prizes.map(srvTier),
       email: deepMerge(EMAIL_DEFAULTS, { ...(r.shared||{}),
         tiers: Object.fromEntries(r.prizes.map(p=>[p.id, p.emailFields||{}])) }) };
