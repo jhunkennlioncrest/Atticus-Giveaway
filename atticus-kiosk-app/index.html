@@ -277,7 +277,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .stat b{display:block;font-family:var(--display);font-size:1.6rem}
 .scroll{overflow:auto;border:1px solid var(--line);border-radius:14px;background:var(--panel);max-height:60vh}
 .scroll table{min-width:900px}
-.badge{display:inline-block;font-size:.72rem;border-radius:999px;padding:.1rem .5rem;border:1px solid var(--line2);color:var(--muted)}
+.badge{display:inline-block;font-size:.72rem;border-radius:999px;padding:.1rem .5rem;border:1px solid var(--line2);color:var(--muted);white-space:nowrap}
 .badge.on{border-color:var(--ok);color:var(--ok)}
 .badge.off{border-color:var(--bad);color:var(--bad)}
 .toolbar{display:flex;gap:.6rem;flex-wrap:wrap;align-items:end;margin-bottom:.8rem}
@@ -993,12 +993,15 @@ function sentDetails(e, cfg){
   rows.push(`<span class="muted">Inbox placement is not tracked.</span>`);
   return rows.join("<br>");
 }
+/* `short` is for the Entries table, where the badge must stay on one line; `label` is
+   the full wording for the entry card and the email views. Both describe provider
+   acceptance only - neither claims delivery. */
 function emailStatus(entry, cfg){
-  if(entry.mail?.status==="sent") return {label:"Sent \u2014 accepted by email provider", kind:"on"};
-  if(entry.mail?.status==="failed") return {label:`Failed (${(entry.mail.attempts||[]).length} attempt${(entry.mail.attempts||[]).length>1?"s":""}): retry`, kind:"off"};
+  if(entry.mail?.status==="sent") return {label:"Accepted by email provider", short:"Sent", kind:"on"};
+  if(entry.mail?.status==="failed") return {label:`Failed (${(entry.mail.attempts||[]).length} attempt${(entry.mail.attempts||[]).length>1?"s":""}): retry`, short:"Failed", kind:"off"};
   const miss=emailMissing(entry.tierId,cfg);
-  if(miss.length) return {label:`Not sent · ${miss.length} detail${miss.length>1?"s":""} to fill`, kind:"off"};
-  return {label:"Not sent", kind:""};
+  if(miss.length) return {label:`Not sent · ${miss.length} detail${miss.length>1?"s":""} to fill`, short:`Not sent · ${miss.length} to fill`, kind:"off"};
+  return {label:"Not sent", short:"Not sent", kind:""};
 }
 /* Sends one author's email. Staff review and edit the draft first; nothing is sent
    automatically. Guarded per entry: a sent email is never re-sent unless staff choose
@@ -1334,7 +1337,7 @@ async function paintTab(){
         <td>${esc(e.name)}<br><span class="small muted">${esc(e.bookTitle)}</span></td>
         <td class="small">${esc(e.email)}<br>${esc(e.phoneE164||"")}</td>
         <td>${esc(e.prizeShort)}</td><td>${esc(e.claimRef)}</td><td class="small">${esc(fmt(e.claimBy))}</td>
-        <td>${esc(e.status)}${e.repeats?`<br><span class="small muted">${e.repeats} repeat try</span>`:""}<br><span class="badge ${emailStatus(e,cfg).kind}">${esc(emailStatus(e,cfg).label)}</span></td>
+        <td>${esc(e.status)}${e.repeats?`<br><span class="small muted">${e.repeats} repeat try</span>`:""}<br><span class="badge ${emailStatus(e,cfg).kind}">${esc(emailStatus(e,cfg).short)}</span></td>
         <td><div class="row" style="gap:.3rem;flex-wrap:nowrap"><button class="btn sm ghost" data-act="open" data-key="${e.key}">Open</button>
           <button class="btn sm ${e.mail?.status==="sent"?"ghost":""}" data-act="compose" data-key="${e.key}">${e.mail?.status==="sent"?"View email":"Send email"}</button>
           ${SRV.on?`<button class="btn sm ghost" data-act="remove-entry" data-key="${e.key}" title="Remove this entry and return the prize to stock" style="border-color:var(--bad);color:var(--bad)">Remove</button>`:""}</div></td></tr>`).join("")
