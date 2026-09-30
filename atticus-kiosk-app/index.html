@@ -1425,10 +1425,10 @@ function openLead(key){
       <tr><th>Reference</th><td>${esc(e.claimRef)}</td></tr>
       <tr><th>Book</th><td>${esc(e.bookTitle)}</td></tr>
       <tr><th>Email</th><td>${esc(e.email)}</td></tr>
-      <tr><th>Phone</th><td>${esc(e.phoneE164)}</td></tr>
+      <tr><th>Phone</th><td>${esc(e.phoneE164||"")||"\u2014"}</td></tr>
       <tr><th>Entered</th><td>${esc(fmtT(e.createdAt))} · ${esc(e.tablet||"")}</td></tr>
-      <tr><th>Consent</th><td>Given ${esc(e.consent?.version)} at ${esc(fmtT(e.consent?.at))}</td></tr>
-      <tr><th>Rules</th><td>${esc(e.rules?.version)} · 18+ confirmed</td></tr>
+      <tr><th>Consent</th><td>${e.consent?.at?`Given ${esc(e.consent.version||"")} at ${esc(fmtT(e.consent.at))}`:"Not recorded"}</td></tr>
+      <tr><th>Rules</th><td>${e.rules?.version?`${esc(e.rules.version)} · 18+ confirmed`:"Not recorded"}</td></tr>
       <tr><th>Claim by</th><td>${esc(fmt(e.claimBy))}</td></tr>
       <tr><th>Email</th><td><span class="badge ${emailStatus(e,V.cfg).kind}">${esc(emailStatus(e,V.cfg).label)}</span> <button class="linkbtn" data-act="compose" data-key="${e.key}">${e.mail?.status==="sent"?"View sent email":"Review and send"}</button></td></tr></tbody></table>
     <div class="field" style="margin-top:.8rem"><label class="lbl" for="d-status">Status</label>
@@ -1779,11 +1779,23 @@ const COLORS = Object.fromEntries(DEFAULT_CONFIG.tiers.map(t=>[t.id,t.color]));
 const srvTier = p => ({ id:p.id, name:p.name, short:p.short, lines:p.lines, worth:p.worth,
   weight:Number(p.weight), limit:Number(p.limit), active:!!p.active, infoUrl:p.infoUrl||"",
   emailFields:p.emailFields||{}, won:Number(p.won||0), left:Number(p.left||0), color:COLORS[p.id]||"#FE5D29" });
+/* The staff list, the entry card and both exports were written against the browser-era
+   entry shape, which carries phoneE164, leadId, prizeShort and nested consent/rules
+   objects. This mapper (server mode) supplied none of them, so those cells read
+   undefined and rendered blank - the phone and consent timestamp were stored correctly
+   all along. Everything below is derived from the stored record; nothing is invented. */
 const srvEntry = e => ({ key:e.id, id:e.id, name:e.name, email:e.email, phone:e.phone, bookTitle:e.book_title,
   tierId:e.prize_id, prize:e.prize_name, claimRef:e.claim_ref, claimBy:e.claim_by, status:e.status,
   owner:e.owner||"", reason:e.reason||"", notes:e.notes||"", history:e.history||[], repeats:e.repeats||0,
   createdAt:e.created_at, tablet:e.tablet, isTest:!!e.is_test, removed:!!e.deleted_at,
   consentVersion:e.consent_version, consentAt:e.consent_at, rulesVersion:e.rules_version,
+  // phone is text, never a number: the leading +, country code and any leading zeros stay
+  phoneE164:(e.phone==null?"":String(e.phone)),
+  leadId:e.claim_ref||"",                       // the reference is the lead's identifier here
+  prizeShort:e.prize_name||"",
+  // shaped for the exports; absent evidence stays absent rather than being asserted
+  consent:{ given:!!e.consent_at, version:e.consent_version||"", at:e.consent_at||null },
+  rules:{ accepted:!!e.rules_version, version:e.rules_version||"" },
   mail:{ status:e.mail_status||"pending", sentAt:e.mail_sent_at, sentBy:e.mail_sent_by,
          sentCount:e.mail_send_count||0, copy:{subject:e.mail_subject, html:e.mail_html}, attempts:e.mail_attempts||[] } });
 
