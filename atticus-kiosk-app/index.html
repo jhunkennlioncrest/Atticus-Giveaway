@@ -1267,10 +1267,10 @@ async function paintTab(){
         const n=counts[t.id]||0, lim=Number(t.limit), pct=Math.min(100,lim?n/lim*100:0), full=n>=lim;
         return `<div class="tier ${t.active&&!full?"":"off"}">
           <div class="row" style="justify-content:space-between"><span class="name"><span class="dot" style="background:${t.color}"></span>${esc(t.name)}</span>
-            <span class="badge ${t.active&&!full&&Number(t.weight)>0?"on":"off"}">${!t.active?"Off":full?"Full":Number(t.weight)>0?"On":"0%"}</span></div>
+            <span class="badge ${t.active&&!full&&Number(t.weight)>0?"on":"off"}">${!t.active?"Off":full?"Full":Number(t.weight)>0?"On":"Excluded"}</span></div>
           <div class="count">${n} <span class="muted" style="font-size:1rem">/ ${lim}</span></div>
           <div class="bar"><i style="width:${pct}%;background:${full?"var(--bad)":"var(--orange)"}"></i></div>
-          <div class="row small muted" style="justify-content:space-between"><span>${Number(t.weight)>0?t.weight+"% chance":"0% — off the wheel"}</span>${full?'<span style="color:var(--bad)">Limit reached · off the wheel</span>':`<span>${lim-n} left</span>`}</div>
+          <div class="row small muted" style="justify-content:space-between"><span>${Number(t.weight)>0?"Weight "+t.weight:"Weight 0 — off the wheel"}</span>${full?'<span style="color:var(--bad)">Limit reached · off the wheel</span>':`<span>${lim-n} left</span>`}</div>
           ${ST.editUrl===t.id
             ? `<div class="limitedit" style="grid-template-columns:1fr auto auto"><label class="sr" for="url-${t.id}">Detail page link for ${esc(t.name)}</label>
                  <input id="url-${t.id}" type="url" placeholder="https://www.atticuspublishing.com/..." value="${esc(t.infoUrl||"")}" data-url-input="${t.id}">
@@ -1358,12 +1358,12 @@ async function paintTab(){
       <div class="field"><label class="lbl" for="s-claim">Days to claim a prize</label><input id="s-claim" type="number" min="1" value="${esc(cfg.claimDays)}"></div>
       <div class="field"><label class="lbl" for="s-pin">Staff PIN</label><input id="s-pin" type="text" inputmode="numeric" value="${esc(cfg.pin)}"></div>
       <button class="btn sm" data-act="save-settings">Save settings</button>
-      <h3 style="color:var(--orange);margin-top:1.6rem">Chances</h3>
-      <p class="small muted">Set the chance for each prize. Use 0% to take one off the wheel. On save, the rest are scaled so the total is always 100%.</p>
+      <h3 style="color:var(--orange);margin-top:1.6rem">Weights</h3>
+      <p class="small muted">Set a whole-number weight for each prize. Higher weights make a prize more likely relative to the other available prizes. Values do not need to total 100. Set a weight to 0 to exclude a prize. Stock is managed separately; prizes with no remaining stock cannot be awarded.</p>
       <table><tbody>${cfg.tiers.map((t,i)=>`<tr><td><span class="dot" style="background:${t.color}"></span>${esc(t.name)}</td>
-        <td class="num" style="width:7rem"><label class="sr" for="w${i}">Chance for ${esc(t.name)}</label><input id="w${i}" type="number" min="0" max="1000000" step="1" inputmode="numeric" value="${t.weight}" data-w="${i}" style="min-height:42px;padding:.3rem .5rem"></td></tr>`).join("")}
-        <tr><th>Total</th><th class="num" id="wt">${cfg.tiers.reduce((s,t)=>s+Number(t.weight),0)}%</th></tr></tbody></table>
-      <button class="btn sm" style="margin-top:.7rem" data-act="save-weights">Save chances</button>
+        <td class="num" style="width:7rem"><label class="sr" for="w${i}">Weight for ${esc(t.name)}</label><input id="w${i}" type="number" min="0" max="1000000" step="1" inputmode="numeric" value="${t.weight}" data-w="${i}" style="min-height:42px;padding:.3rem .5rem"></td></tr>`).join("")}
+        <tr><th>Total weight</th><th class="num" id="wt">${cfg.tiers.reduce((s,t)=>s+Number(t.weight),0)}</th></tr></tbody></table>
+      <button class="btn sm" style="margin-top:.7rem" data-act="save-weights">Save weights</button>
       <h3 style="color:var(--orange);margin-top:1.6rem">This tablet</h3>
       <div id="apppanel">${appPanel()}</div>
       <h3 style="color:var(--orange);margin-top:1.6rem">Practice data</h3>
