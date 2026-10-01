@@ -1261,8 +1261,7 @@ async function paintTab(){
         <div class="stat"><b>${left}</b><span class="small muted">slots left</span></div>
         <div class="stat"><b>${live.length}</b><span class="small muted">tiers on the wheel</span></div>
         <div class="stat"><b>${cfg.tiers.length-live.length}</b><span class="small muted">tiers off the wheel</span></div></div>
-      ${Math.abs(total-100)>0.01?`<div class="alertbox">The published chances add up to ${total}%, not 100%. Fix them in Settings.</div>`:""}
-      ${live.length<cfg.tiers.length?`<p class="small muted" style="margin-top:-.4rem">With ${cfg.tiers.length-live.length} tier(s) off, the wheel re-bases the remaining chances to 100%: ${shownChances(live).map(({t,pct})=>esc(t.short)+" "+pctText(pct)).join(" · ")}</p>`:""}
+      <p class="small muted" style="margin-top:-.4rem">Total weight of all prizes: ${total}. Weights are relative, so this does not need to total 100.${live.length<cfg.tiers.length?` With ${cfg.tiers.length-live.length} tier(s) off the wheel, the ${live.length} still available are drawn in proportion to their weights: ${shownChances(live).map(({t,pct})=>esc(t.short)+" "+pctText(pct)).join(" · ")}`:""}</p>
       <div class="cards">${cfg.tiers.map(t=>{
         const n=counts[t.id]||0, lim=Number(t.limit), pct=Math.min(100,lim?n/lim*100:0), full=n>=lim;
         return `<div class="tier ${t.active&&!full?"":"off"}">
@@ -1286,7 +1285,7 @@ async function paintTab(){
                  <button class="btn sm ghost" data-act="limit" data-id="${t.id}">Change limit</button>
                  <button class="btn sm ghost" data-act="url" data-id="${t.id}">${(t.infoUrl||"").trim()?"Edit detail link":"Add detail link"}</button></div>`}
           </div>`;}).join("")}</div>
-      <p class="small muted" style="margin-top:1rem">Set a prize to 0% (or remove it) to take it off the wheel without deleting it: the other prizes share out the difference so the published chances always total 100%. A tier also comes off by itself the moment it reaches its winner limit; raise the limit to bring it back. Removing a tier takes it off the wheel straight away. The remaining chances grow in proportion, and the wheel always shows what's left. Every change is recorded with your name.</p>`;
+      <p class="small muted" style="margin-top:1rem">Set a prize's weight to 0 (or remove it) to take it off the wheel without deleting it: the other weights are left exactly as they are. A tier also comes off by itself the moment it reaches its winner limit; raise the limit to bring it back. Removing a tier takes it off the wheel straight away. Whatever is left is drawn in proportion to its weight, and the wheel always shows what's still available. Every change is recorded with your name.</p>`;
   }
   else if(ST.tab==="leads"){
     const q=ST.q.trim().toLowerCase();
