@@ -824,23 +824,10 @@ async function doSpin(){
    required detail missing is HELD: it is never sent half-filled. Delivery is
    not connected in this build, so nothing is actually emailed yet.
    =========================================================================== */
-/* Sending goes through this app's own server (api/send-email on Vercel), which holds the
-   email provider's key. The tablet only holds a sending key that staff enter once in Settings. */
-const DELIVERY = { endpoint:"/api/send-email", provider:null /* tests can swap in a stand-in */ };
+/* Confirmations are sent by this app's own server through the signed-in staff session
+   (the emailSend operation). There is no second transport and no shared sending key. */
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const MARKER_RE = /\[(To confirm|currency to confirm)/i;
-const SEND_KEY_STORE="atticus-send-key";
-function sendKey(){ try{ return localStorage.getItem(SEND_KEY_STORE)||""; }catch{ return ""; } }
-function setSendKey(v){ try{ v?localStorage.setItem(SEND_KEY_STORE,v):localStorage.removeItem(SEND_KEY_STORE); }catch{} }
-const canSend = () => !!DELIVERY.provider || (APP.installable && !!sendKey());
-async function apiCall(method, body){
-  let r; try{ r=await fetch(DELIVERY.endpoint,{method,headers:{"content-type":"application/json","x-kiosk-key":sendKey()},body:body?JSON.stringify(body):undefined}); }
-  catch{ throw new Error("No internet connection. Connect the tablet and try again."); }
-  let j={}; try{ j=await r.json(); }catch{}
-  if(!r.ok||!j.ok) throw new Error(j.error||`The email server answered ${r.status}.`);
-  return j;
-}
-const deliver = msg => DELIVERY.provider ? DELIVERY.provider.send(msg) : apiCall("POST", msg);
 const EMAIL_TYPES = {v2500:"voucher",v800:"voucher",v250:"voucher",v100:"voucher",v80:"voucher",bs1:"bookstore",bs2:"bookstore"};
 const emailType = id => EMAIL_TYPES[id]||"service";
 // [key, label, required, hint]
@@ -1019,29 +1006,6 @@ async function serverSend(key, draft, again){
     return {ok:false, why:"failed", error:String(err.message||err)};
   }
 }
-async function sendConfirmation(key, draft=null, opts={}){
-  return S.lock("email-"+key, async()=>{
-    const e=await S.get("entries/"+key); if(!e) return {ok:false,why:"missing entry"};
-    if(e.mail?.status==="sent" && !opts.again) return {ok:true, already:true};
-    const cfg=await Engine.config();
-    let msg=draft;
-    if(!msg){ if(emailMissing(e.tierId,cfg).length) return {ok:false, why:"held", missing:emailMissing(e.tierId,cfg)}; msg=renderEmail(e,cfg,false); }
-    if(MARKER_RE.test(msg.subject+msg.html+msg.text)) return {ok:false, why:"markers"};
-    const n=(e.mail?.sentCount||0)+1, attempts=[...(e.mail?.attempts||[])];
-    try{
-      const r=await deliver({to:e.email, name:e.name, subject:msg.subject, html:msg.html, text:msg.text, claimRef:e.claimRef, idempotencyKey:`${e.claimRef}-${n}`});
-      attempts.push({at:nowIso(), ok:true, by:opts.by||"", id:r&&r.id||""});
-      await S.update("entries/"+key,{mail:{status:"sent", key:e.claimRef, sentAt:nowIso(), sentBy:opts.by||"", sentCount:n, to:e.email,
-        attempts, copy:{subject:msg.subject, html:msg.html}}, updatedAt:nowIso(),
-        history:[...(e.history||[]),{at:nowIso(),by:opts.by||"",what:`Confirmation email sent to ${e.email}`}]});
-      return {ok:true};
-    }catch(err){
-      attempts.push({at:nowIso(), ok:false, by:opts.by||"", error:String(err.message||err).slice(0,200)});
-      await S.update("entries/"+key,{mail:{...(e.mail||{}), status:e.mail?.status==="sent"?"sent":"failed", key:e.claimRef, attempts}});
-      return {ok:false, why:"failed", error:String(err.message||err)};
-    }
-  });
-}
 const SAMPLE_ENTRY = (cfg,tierId)=>({name:"Maria Santos", bookTitle:"The Lantern Road", tierId, claimRef:"ATC-SAMPLE", claimBy:addDays(nowIso(),Number(cfg.claimDays)||60)});
 
 
@@ -1133,7 +1097,7 @@ function composerCheck(){
   if(!d && !trouble) trouble="Preparing the letter\u2026 Send becomes available in a moment.";
   const markers=!!d && MARKER_RE.test(d.subject+d.html), empty=!!d && !d.subject;
   const why = trouble ? trouble
-            : !(SRV.on || canSend()) ? (APP.installable?"Enter the sending key in Settings → Email sending first.":"Sending works in the installed app, not in this preview.")
+            : !SRV.on ? "Can't reach the system, so this can't be sent yet. Check the tablet's connection."
             : markers ? "Fill in or delete every orange [To confirm] note before sending."
             : empty ? "Add a subject line." : "";
   btn.disabled=!!why; $("#cmp-why").textContent=why; $("#cmp-why").hidden=!why;
@@ -1200,7 +1164,7 @@ async function composerSend(){
     `To ${e.name} at ${e.email}. Subject: ${draft.subject}`, again?"Yes, send another":"Send now");
   if(!ok) return;
   const btn=$("#cmp-send"); btn.disabled=true; btn.textContent="Sending…";
-  const r = SRV.on ? await serverSend(CMP.key, draft, again) : await sendConfirmation(CMP.key, draft, {again, by:ST.by});
+  const r = await serverSend(CMP.key, draft, again);
   if(r.ok){ closeComposer(); toast(`Email sent to ${e.email}.`); ST.entries=await S.list("entries"); renderStaff(); }
   else { if(!$("#cmp-send")) return; btn.textContent="Send email"; composerCheck();
     const msg= r.why==="markers"?"There are still [To confirm] notes in the email." : r.error||"The email didn't send.";
@@ -1400,14 +1364,6 @@ async function paintTab(){
         <td class="num" style="width:7rem"><label class="sr" for="w${i}">Chance for ${esc(t.name)}</label><input id="w${i}" type="number" min="0" max="1000000" step="1" inputmode="numeric" value="${t.weight}" data-w="${i}" style="min-height:42px;padding:.3rem .5rem"></td></tr>`).join("")}
         <tr><th>Total</th><th class="num" id="wt">${cfg.tiers.reduce((s,t)=>s+Number(t.weight),0)}%</th></tr></tbody></table>
       <button class="btn sm" style="margin-top:.7rem" data-act="save-weights">Save chances</button>
-      <h3 style="color:var(--orange);margin-top:1.6rem">Email sending</h3>
-      <p class="small muted">Emails go out from the live app's own server. Enter the sending key you set in Vercel once on each tablet. It stays on this tablet and isn't included in exports.</p>
-      <div class="field"><label class="lbl" for="s-sendkey">Sending key</label><input id="s-sendkey" type="password" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" value="${esc(sendKey())}" placeholder="Paste the KIOSK_SEND_KEY value"></div>
-      <div class="row"><button class="btn sm" data-act="send-key-save">Save key</button><button class="btn sm ghost" data-act="send-check" ${APP.installable?"":"disabled"}>Check connection</button></div>
-      <p class="small" id="send-status" style="margin:.5rem 0">${APP.installable?"":"Sending only works in the live app, not in this preview."}</p>
-      <div class="field"><label class="lbl" for="s-testto">Send a test email to</label><input id="s-testto" type="email" autocomplete="off" autocorrect="off" spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" placeholder="you@atticuspublishing.com"></div>
-      <button class="btn sm ghost" data-act="send-test" ${APP.installable?"":"disabled"}>Send test email</button>
-      <p class="small muted">The test uses the $2,500 voucher template (or the prize last selected in the Emails tab) with a sample author.</p>
       <h3 style="color:var(--orange);margin-top:1.6rem">This tablet</h3>
       <div id="apppanel">${appPanel()}</div>
       <h3 style="color:var(--orange);margin-top:1.6rem">Practice data</h3>
@@ -1667,20 +1623,6 @@ document.addEventListener("click", async ev=>{
   else if(act==="cmp-reset"){ if(await confirmDlg("Reset this email?","Your edits will be replaced with the template again.","Reset")) openComposer(CMP.key, true); }
   else if(act==="cmp-again"){ if(await confirmDlg("Send another email?","This author has already been emailed. You'll get a fresh copy of the template to review.","Continue")) openComposer(CMP.key, true); }
   else if(act==="cmp-send"){ composerSend(); }
-  else if(act==="send-key-save"){ setSendKey($("#s-sendkey").value.trim()); toast($("#s-sendkey").value.trim()?"Sending key saved on this tablet.":"Sending key removed from this tablet."); paintTab(); }
-  else if(act==="send-check"){
-    const out=$("#send-status"); out.textContent="Checking…";
-    try{ const r=await apiCall("GET"); out.innerHTML=`<span class="badge on">Connected</span> Sending as ${esc(r.from)} through ${esc(r.provider)}.`; }
-    catch(err){ out.innerHTML=`<span class="badge off">Not connected</span> ${esc(err.message)}`; }
-  }
-  else if(act==="send-test"){
-    const to=$("#s-testto").value.trim(); if(!EMAIL_RE.test(to)){ toast("Enter a valid email address for the test.","bad"); return; }
-    const m=renderEmail({...SAMPLE_ENTRY(V.cfg,ST.emailTier||"v2500"), email:to}, V.cfg, false);
-    if(MARKER_RE.test(m.subject+m.html)){ toast("Fill this prize's details in the Emails tab first, then send the test.","bad"); return; }
-    try{ await apiCall("POST",{to, name:"Test", subject:"[TEST] "+m.subject, html:m.html, text:m.text, claimRef:"ATC-TEST", idempotencyKey:"ATC-TEST-"+Date.now()});
-         toast(`Test email sent to ${to}. Check the inbox and spam folder.`); }
-    catch(err){ toast("Test not sent: "+err.message,"bad"); }
-  }
   else if(act==="install-app"){ const e=APP.promptEvt; if(!e) return; e.prompt(); const r=await e.userChoice.catch(()=>({})); APP.promptEvt=null; refreshAppPanel(); if(r.outcome!=="accepted") toast("Install cancelled. You can try again from Settings."); }
   else if(act==="apply-update"){ location.reload(); }
   else if(act==="open"){ openLead(el.dataset.key); }

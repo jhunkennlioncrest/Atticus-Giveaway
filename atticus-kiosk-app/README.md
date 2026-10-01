@@ -12,7 +12,6 @@ needs the server. That is the price of shared stock and one entry per author acr
 - `set-password.html` — where invitation and password-reset links land
 - `api/app.js` — the server: draw, entries, emails, admin sign-in
 - `api/_core.js`, `api/_email.js` — shared server logic and the winner-email wording
-- `api/send-email.js` — the manual test-send endpoint used by Settings
 - `db/` — the database schema and migrations
 - `tests/` — the test suites, and how to run them
 - `vercel.json`, `_headers`, `manifest.webmanifest`, `sw.js`, `icons/`, `fonts/`
@@ -32,7 +31,6 @@ needs the server. That is the price of shared stock and one entry per author acr
    | `FROM_ADDRESS` | `Atticus Publishing <no-reply@yourdomain>` | for sending |
    | `RESEND_API_KEY` or `ZEPTO_TOKEN` | provider key | for sending |
    | `ZEPTO_HOST` | `api.zeptomail.eu` / `.in` | ZeptoMail outside the US |
-   | `EMAIL_SEND_KEY` | long random string | only for the test-send button |
    | `SITE_URL` | `https://<your-preview>.vercel.app` | only if the deployment sits behind a custom domain; otherwise Vercel's own `VERCEL_URL` is used |
 
    No self-address setting is needed: email is sent inside `api/app.js`.
